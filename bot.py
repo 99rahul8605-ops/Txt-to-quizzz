@@ -46,7 +46,7 @@ AD_API = os.getenv('AD_API', '446b3a3f0039a2826f1483f22e9080963974ad3b')
 WEBSITE_URL = os.getenv('WEBSITE_URL', 'upshrink.com')
 YOUTUBE_TUTORIAL = "https://youtu.be/WeqpaV6VnO4?si=Y0pDondqe-nmIuht"
 GITHUB_REPO = "Admin ko contact karo"
-PREMIUM_CONTACT = "@Mr_rahul090"  # Premium contact
+PREMIUM_CONTACT = "@rahul_g8"  # Premium contact
 
 # Quiz limit configuration
 DAILY_QUIZ_LIMIT = int(os.getenv('DAILY_QUIZ_LIMIT', 20))  # Default is 20 quizzes/day
