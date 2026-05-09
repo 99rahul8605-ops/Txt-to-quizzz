@@ -564,32 +564,42 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
 
-    # Clear all in-memory caches
-    TOKEN_CACHE.pop(user_id, None)
-    PREMIUM_CACHE.pop(user_id, None)
-    SUDO_CACHE.pop(user_id, None)
-    temp_params.pop(user_id, None)
-    TOKEN_MESSAGES.pop(user_id, None)
-    pending_tokens.pop(user_id, None)
+    # Only admin/sudo can use this
+    if not await is_sudo(user_id):
+        await update.message.reply_text("❌ This command is restricted to admins only.")
+        return
 
-    # Delete from DB — tokens, users, invite points, pending redeem requests
+    # Clear all in-memory caches completely
+    TOKEN_CACHE.clear()
+    PREMIUM_CACHE.clear()
+    SUDO_CACHE.clear()
+    temp_params.clear()
+    TOKEN_MESSAGES.clear()
+    pending_tokens.clear()
+
+    # Delete ALL users data from DB
+    deleted = {}
     if DB is not None:
         try:
-            await DB.tokens.delete_one({"user_id": user_id})
-            await DB.users.delete_one({"user_id": user_id})
-            await DB.invite_points.delete_one({"user_id": user_id})
-            await DB.redeem_requests.delete_many({"user_id": user_id})
+            r1 = await DB.tokens.delete_many({})
+            r2 = await DB.users.delete_many({})
+            r3 = await DB.invite_points.delete_many({})
+            deleted = {
+                "tokens": r1.deleted_count,
+                "users": r2.deleted_count,
+                "invite_points": r3.deleted_count,
+            }
         except Exception as e:
             logger.error(f"Refresh DB error: {e}")
 
     await update.message.reply_text(
         "🔄 <b>Full Reset Complete!</b>\n\n"
-        "Cleared:\n"
-        "• ✅ Access token\n"
-        "• ✅ Invite points\n"
-        "• ✅ Pending redeem requests\n"
-        "• ✅ All caches\n\n"
-        "Use /token to get access again.",
+        "<b>All users data cleared:</b>\n"
+        f"• ✅ Tokens: <code>{deleted.get('tokens', 0)}</code> records\n"
+        f"• ✅ Users: <code>{deleted.get('users', 0)}</code> records\n"
+        f"• ✅ Invite points: <code>{deleted.get('invite_points', 0)}</code> records\n"
+        "• ✅ All in-memory caches\n\n"
+        "Everyone will need to /token again.",
         parse_mode='HTML'
     )
 
