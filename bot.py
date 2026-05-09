@@ -296,19 +296,22 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if DB is not None:
         token_data = await DB.tokens.find_one({"user_id": user_id})
         if token_data:
-            expires_at = token_data.get("expires_at")
+            quiz_used = token_data.get("quiz_used", 0)
+            quiz_limit = token_data.get("quiz_limit", DAILY_QUIZ_LIMIT)
             created_at = token_data.get("created_at")
-            if expires_at and expires_at > datetime.utcnow():
-                # Cooldown: can't claim again within 1 hour of creation
+            quizzes_left = quiz_limit - quiz_used
+
+            if quizzes_left > 0 and created_at:
                 cooldown_end = created_at + timedelta(hours=1)
                 if datetime.utcnow() < cooldown_end:
                     time_left = cooldown_end - datetime.utcnow()
                     minutes = int(time_left.total_seconds() // 60)
                     seconds = int(time_left.total_seconds() % 60)
                     await update.message.reply_text(
-                        f"⏳ <b>Cooldown Active!</b>\\n\\n"
-                        f"You still have <b>{quizzes_left} quiz(es)</b> remaining.\\n"
+                        f"⏳ <b>Cooldown Active!</b>\n\n"
+                        f"You still have <b>{quizzes_left} quiz(es)</b> remaining.\n"
                         f"Please wait <b>{minutes}m {seconds}s</b> before watching another ad.",
+                        parse_mode='HTML'
                     )
                     return
 
