@@ -292,6 +292,29 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
+    # Check if user already has active token — cooldown 1 hour
+    if DB is not None:
+        token_data = await DB.tokens.find_one({"user_id": user_id})
+        if token_data:
+            expires_at = token_data.get("expires_at")
+            created_at = token_data.get("created_at")
+            if expires_at and expires_at > datetime.utcnow():
+                # Cooldown: can't claim again within 1 hour of creation
+                cooldown_end = created_at + timedelta(hours=1)
+                if datetime.utcnow() < cooldown_end:
+                    time_left = cooldown_end - datetime.utcnow()
+                    minutes = int(time_left.total_seconds() // 60)
+                    seconds = int(time_left.total_seconds() % 60)
+                    await update.message.reply_text(
+                        f"⏳ <b>Cooldown Active!</b>
+
+You already have access. Please wait <b>{minutes}m {seconds}s</b> before watching another ad.
+
+Your access expires in: {format_time_left(expires_at)}",
+                        parse_mode='HTML'
+                    )
+                    return
+
     # Generate a session param tied to this user
     param = generate_random_param()
     temp_params[user_id] = param
@@ -1527,25 +1550,31 @@ async def main_async() -> None:
     # Add button handler
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # Start polling
     logger.info("Starting Telegram bot in polling mode...")
     try:
         await application.initialize()
         await application.start()
+
+        # Delete any existing webhook and drop pending updates from old instance
+        await application.bot.delete_webhook(drop_pending_updates=True)
+        # Small delay to let old instance fully release
+        await asyncio.sleep(3)
+
         await application.updater.start_polling(
-            poll_interval=0.1,
+            poll_interval=0.5,
             timeout=10,
-            read_timeout=10
+            read_timeout=10,
+            drop_pending_updates=True
         )
         logger.info("Bot is now running")
 
         # Start background task to flush pending tokens to DB
         asyncio.create_task(process_pending_tokens())
-        
+
         # Keep running until interrupted
         while True:
             await asyncio.sleep(3600)
-            
+
     except asyncio.CancelledError:
         pass
     except Exception as e:
