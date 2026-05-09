@@ -257,36 +257,34 @@
     }
   }
 
+  function onAdSuccess() {
+    adWatched = true;
+    setStep(2);
+    document.getElementById('claimBtn').disabled = false;
+    document.getElementById('watchBtn').disabled = true;
+    setStatus('✅ Ad watched! Now claim your access below.', 'ok');
+  }
+
+  function onAdFail() {
+    document.getElementById('watchBtn').disabled = false;
+    setStatus('⚠️ Ad failed to load. Please try again.', 'err');
+  }
+
   function watchAd() {
     const btn = document.getElementById('watchBtn');
     btn.disabled = true;
     setStatus('Loading ad...', '');
 
-    // Show ad using the provided ad SDK
-    show_10984967('pop')
-      .then(() => {
-        adWatched = true;
-        setStep(2);
-        document.getElementById('claimBtn').disabled = false;
-        setStatus('✅ Ad watched! Now claim your access below.', 'ok');
-      })
-      .catch(e => {
-        // On error, still try rewarded interstitial as fallback
-        console.error('Pop ad error:', e);
-        return show_10984967();
-      })
-      .then((res) => {
-        if (!adWatched && res !== undefined) {
-          adWatched = true;
-          setStep(2);
-          document.getElementById('claimBtn').disabled = false;
-          setStatus('✅ Ad watched! Now claim your access below.', 'ok');
-        }
-      })
-      .catch(() => {
-        btn.disabled = false;
-        setStatus('⚠️ Ad failed to load. Please try again.', 'err');
-      });
+    // Check if Monetag SDK loaded
+    if (typeof show_10984967 === 'undefined') {
+      setStatus('⚠️ Ad network not available. Try again shortly.', 'err');
+      btn.disabled = false;
+      return;
+    }
+
+    show_10984967()
+      .then(() => onAdSuccess())
+      .catch(() => onAdFail());
   }
 
   async function claimReward() {
