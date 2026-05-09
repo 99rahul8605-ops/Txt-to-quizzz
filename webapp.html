@@ -5,24 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Get Access</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Clash+Display:wght@600;700&family=Cabinet+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap');
-
   :root {
-    --bg: #0d0f14;
-    --card: #161a23;
-    --accent: #f0c040;
-    --accent2: #e07b30;
-    --text: #eef0f5;
-    --muted: #7a8099;
-    --success: #4cdc8a;
-    --radius: 16px;
+    --bg: #05060a;
+    --card: #0d0f18;
+    --border: rgba(255,255,255,0.07);
+    --accent: #c8f04a;
+    --accent-dim: rgba(200,240,74,0.12);
+    --accent-glow: rgba(200,240,74,0.35);
+    --orange: #ff7b3a;
+    --orange-dim: rgba(255,123,58,0.12);
+    --text: #f0f2f8;
+    --muted: #5a6080;
+    --success: #4cf0a0;
+    --success-dim: rgba(76,240,160,0.12);
+    --radius: 20px;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'Cabinet Grotesk', sans-serif;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
@@ -30,189 +34,357 @@
     align-items: center;
     justify-content: center;
     padding: 20px;
+    overflow-x: hidden;
+  }
+
+  /* Animated background blobs */
+  .bg-blob {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    pointer-events: none;
+    z-index: 0;
+    animation: blobFloat 8s ease-in-out infinite;
+  }
+  .bg-blob-1 {
+    width: 300px; height: 300px;
+    background: rgba(200,240,74,0.07);
+    top: -80px; left: -60px;
+    animation-delay: 0s;
+  }
+  .bg-blob-2 {
+    width: 250px; height: 250px;
+    background: rgba(255,123,58,0.06);
+    bottom: -60px; right: -40px;
+    animation-delay: 3s;
+  }
+  .bg-blob-3 {
+    width: 180px; height: 180px;
+    background: rgba(76,240,160,0.05);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    animation-delay: 5s;
+  }
+  @keyframes blobFloat {
+    0%, 100% { transform: scale(1) translateY(0); }
+    50% { transform: scale(1.1) translateY(-15px); }
   }
 
   .card {
+    position: relative;
+    z-index: 1;
     background: var(--card);
     border-radius: var(--radius);
-    padding: 32px 24px;
+    padding: 36px 28px 32px;
     max-width: 400px;
     width: 100%;
     text-align: center;
-    border: 1px solid rgba(255,255,255,0.06);
-    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
-    position: relative;
-    overflow: hidden;
+    border: 1px solid var(--border);
+    box-shadow:
+      0 0 0 1px rgba(200,240,74,0.04),
+      0 32px 80px rgba(0,0,0,0.7),
+      inset 0 1px 0 rgba(255,255,255,0.05);
+    animation: cardIn 0.6s cubic-bezier(0.22,1,0.36,1) both;
   }
 
-  .card::before {
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(30px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* Glowing top edge */
+  .card::after {
     content: '';
     position: absolute;
-    top: -80px; left: -80px;
-    width: 220px; height: 220px;
-    background: radial-gradient(circle, rgba(240,192,64,0.12) 0%, transparent 70%);
-    pointer-events: none;
+    top: 0; left: 20%; right: 20%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.6;
   }
 
-  .icon {
-    font-size: 52px;
-    margin-bottom: 12px;
-    line-height: 1;
+  /* Icon area */
+  .icon-wrap {
+    width: 72px; height: 72px;
+    margin: 0 auto 18px;
+    background: linear-gradient(135deg, var(--accent-dim), var(--orange-dim));
+    border: 1px solid rgba(200,240,74,0.2);
+    border-radius: 18px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 34px;
+    position: relative;
+    animation: iconPulse 3s ease-in-out infinite;
+  }
+  @keyframes iconPulse {
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
+    50% { box-shadow: 0 0 0 10px rgba(200,240,74,0); }
   }
 
   h1 {
-    font-family: 'Syne', sans-serif;
-    font-size: 22px;
-    font-weight: 800;
-    letter-spacing: -0.3px;
+    font-family: 'Clash Display', sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
     margin-bottom: 8px;
+    background: linear-gradient(135deg, #fff 30%, #c8f04a);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
 
   .sub {
     color: var(--muted);
     font-size: 14px;
-    line-height: 1.6;
+    line-height: 1.65;
     margin-bottom: 28px;
+    font-weight: 400;
   }
 
-  .badge-row {
-    display: flex;
-    gap: 10px;
-    justify-content: center;
-    margin-bottom: 28px;
-    flex-wrap: wrap;
-  }
-
-  .badge {
-    background: rgba(240,192,64,0.1);
-    border: 1px solid rgba(240,192,64,0.25);
-    color: var(--accent);
-    font-size: 12px;
-    font-weight: 500;
-    padding: 5px 12px;
-    border-radius: 999px;
-  }
-
-  .btn {
-    display: block;
-    width: 100%;
-    padding: 15px 20px;
-    border-radius: 12px;
-    font-family: 'Syne', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    cursor: pointer;
-    border: none;
-    transition: transform 0.15s, opacity 0.15s;
-  }
-
-  .btn:active { transform: scale(0.97); }
-
-  .btn-ad {
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
-    color: #1a1200;
-    margin-bottom: 12px;
-  }
-
-  .btn-claim {
-    background: var(--success);
-    color: #0a2018;
-  }
-
-  .btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-    transform: none;
-  }
-
-  .status {
-    margin-top: 18px;
-    font-size: 13px;
-    min-height: 20px;
-    color: var(--muted);
-    transition: color 0.3s;
-  }
-
-  .status.ok { color: var(--success); }
-  .status.err { color: #f06060; }
-
+  /* Step row */
   .step-row {
     display: flex;
-    gap: 8px;
+    align-items: center;
     justify-content: center;
-    margin-bottom: 24px;
+    gap: 0;
+    margin-bottom: 26px;
   }
 
   .step {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     flex: 1;
-    max-width: 90px;
   }
 
   .step-num {
-    width: 28px; height: 28px;
+    width: 34px; height: 34px;
     border-radius: 50%;
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.1);
-    font-family: 'Syne', sans-serif;
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid rgba(255,255,255,0.1);
+    font-family: 'Clash Display', sans-serif;
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 600;
     display: flex; align-items: center; justify-content: center;
     color: var(--muted);
-    transition: all 0.3s;
+    transition: all 0.4s cubic-bezier(0.22,1,0.36,1);
   }
 
   .step.active .step-num {
-    background: rgba(240,192,64,0.15);
+    background: var(--accent-dim);
     border-color: var(--accent);
     color: var(--accent);
+    box-shadow: 0 0 16px var(--accent-glow);
   }
 
   .step.done .step-num {
-    background: rgba(76,220,138,0.15);
+    background: var(--success-dim);
     border-color: var(--success);
     color: var(--success);
+    box-shadow: 0 0 12px rgba(76,240,160,0.3);
   }
 
   .step-label {
     font-size: 11px;
     color: var(--muted);
-    text-align: center;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    transition: color 0.3s;
   }
 
   .step.active .step-label { color: var(--text); }
+  .step.done .step-label { color: var(--success); }
 
-  .divider {
-    width: 16px; height: 1px;
-    background: rgba(255,255,255,0.1);
-    margin-top: 14px;
-    align-self: flex-start;
-    margin-top: 13px;
+  .step-line {
+    flex: 0 0 28px;
+    height: 1.5px;
+    background: rgba(255,255,255,0.08);
+    margin-bottom: 20px;
+    position: relative;
+    overflow: hidden;
   }
+  .step-line.filled {
+    background: linear-gradient(90deg, var(--success), var(--accent));
+  }
+  .step-line::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    animation: shimmer 2s linear infinite;
+    opacity: 0;
+  }
+  .step-line.filled::after { opacity: 1; }
+  @keyframes shimmer {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(100%); }
+  }
+
+  /* Badge row */
+  .badge-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+
+  .badge {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.09);
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 5px 12px;
+    border-radius: 999px;
+    letter-spacing: 0.2px;
+    transition: all 0.3s;
+  }
+
+  .badge:hover {
+    background: var(--accent-dim);
+    border-color: rgba(200,240,74,0.25);
+    color: var(--accent);
+  }
+
+  /* Buttons */
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 15px 20px;
+    border-radius: 14px;
+    font-family: 'Clash Display', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    cursor: pointer;
+    border: none;
+    transition: transform 0.15s, opacity 0.2s, box-shadow 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+    transition: left 0.5s;
+  }
+
+  .btn:hover:not(:disabled)::before { left: 160%; }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+
+  .btn-ad {
+    background: linear-gradient(135deg, #c8f04a 0%, #ff7b3a 100%);
+    color: #0a1200;
+    margin-bottom: 12px;
+    box-shadow: 0 8px 28px rgba(200,240,74,0.25);
+  }
+
+  .btn-ad:hover:not(:disabled) {
+    box-shadow: 0 12px 36px rgba(200,240,74,0.4);
+    transform: translateY(-1px);
+  }
+
+  .btn-claim {
+    background: linear-gradient(135deg, #4cf0a0 0%, #00b894 100%);
+    color: #001a0d;
+    box-shadow: 0 8px 28px rgba(76,240,160,0.2);
+  }
+
+  .btn-claim:hover:not(:disabled) {
+    box-shadow: 0 12px 36px rgba(76,240,160,0.4);
+    transform: translateY(-1px);
+  }
+
+  .btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+  }
+
+  /* Spinner inside button */
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(0,0,0,0.3);
+    border-top-color: rgba(0,0,0,0.8);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Status */
+  .status {
+    margin-top: 18px;
+    font-size: 13px;
+    min-height: 22px;
+    color: var(--muted);
+    transition: color 0.3s, opacity 0.3s;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .status.ok { color: var(--success); }
+  .status.err { color: #f07070; }
+
+  /* Divider */
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 22px 0;
+  }
+
+  /* Timer bar (hidden by default) */
+  .ad-timer {
+    display: none;
+    height: 3px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 4px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .ad-timer-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--orange));
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.1s linear;
+  }
+  .ad-timer.visible { display: block; }
 </style>
 </head>
 <body>
 
+<div class="bg-blob bg-blob-1"></div>
+<div class="bg-blob bg-blob-2"></div>
+<div class="bg-blob bg-blob-3"></div>
+
 <div class="card">
-  <div class="icon">🎬</div>
+  <div class="icon-wrap">🎬</div>
   <h1>Unlock 24-Hour Access</h1>
-  <p class="sub">Watch a short ad to get full access for 24 hours — completely free.</p>
+  <p class="sub">Watch a short ad to get full access for 24 hours — no signup, completely free.</p>
 
   <div class="step-row">
     <div class="step active" id="s1">
       <div class="step-num">1</div>
       <div class="step-label">Watch Ad</div>
     </div>
-    <div class="divider"></div>
+    <div class="step-line" id="line1"></div>
     <div class="step" id="s2">
       <div class="step-num">2</div>
       <div class="step-label">Claim</div>
     </div>
-    <div class="divider"></div>
+    <div class="step-line" id="line2"></div>
     <div class="step" id="s3">
       <div class="step-num">3</div>
       <div class="step-label">Access</div>
@@ -225,21 +397,32 @@
     <span class="badge">⚡ Instant</span>
   </div>
 
-  <button class="btn btn-ad" id="watchBtn" onclick="watchAd()">▶️ Watch Ad Now</button>
-  <button class="btn btn-claim" id="claimBtn" onclick="claimReward()" disabled>🎁 Claim My Access</button>
+  <div class="ad-timer" id="adTimer">
+    <div class="ad-timer-fill" id="adTimerFill"></div>
+  </div>
+
+  <button class="btn btn-ad" id="watchBtn" onclick="watchAd()">
+    <span>▶️</span>
+    <span id="watchBtnText">Watch Ad Now</span>
+    <div class="spinner" id="watchSpinner"></div>
+  </button>
+
+  <button class="btn btn-claim" id="claimBtn" onclick="claimReward()" disabled>
+    <span>🎁</span>
+    <span id="claimBtnText">Claim My Access</span>
+    <div class="spinner" id="claimSpinner"></div>
+  </button>
 
   <div class="status" id="statusMsg"></div>
 </div>
 
 <script>
-  // Init Telegram WebApp
   const tg = window.Telegram && window.Telegram.WebApp;
   if (tg) tg.ready();
 
-  // Get params from URL
   const params = new URLSearchParams(window.location.search);
   const userId = params.get('user_id');
-  const param = params.get('param');
+  const param  = params.get('param');
 
   let adWatched = false;
 
@@ -252,39 +435,78 @@
   function setStep(n) {
     for (let i = 1; i <= 3; i++) {
       const s = document.getElementById('s' + i);
-      s.className = 'step' + (i < n ? ' done' : i === n ? ' active' : '');
-      if (i < n) s.querySelector('.step-num').textContent = '✓';
+      const numEl = s.querySelector('.step-num');
+      if (i < n) {
+        s.className = 'step done';
+        numEl.textContent = '✓';
+      } else if (i === n) {
+        s.className = 'step active';
+      } else {
+        s.className = 'step';
+      }
     }
+    if (n > 1) document.getElementById('line1').classList.add('filled');
+    if (n > 2) document.getElementById('line2').classList.add('filled');
+  }
+
+  function setLoading(btnId, spinnerId, textId, loading, text) {
+    document.getElementById(spinnerId).style.display = loading ? 'block' : 'none';
+    document.getElementById(textId).textContent = text;
+    document.getElementById(btnId).disabled = loading;
   }
 
   function onAdSuccess() {
     adWatched = true;
+    document.getElementById('adTimer').classList.remove('visible');
     setStep(2);
     document.getElementById('claimBtn').disabled = false;
     document.getElementById('watchBtn').disabled = true;
-    setStatus('✅ Ad watched! Now claim your access below.', 'ok');
+    setStatus('✅ Ad complete! Claim your access below.', 'ok');
   }
 
   function onAdFail() {
+    document.getElementById('adTimer').classList.remove('visible');
     document.getElementById('watchBtn').disabled = false;
+    document.getElementById('watchBtnText').textContent = 'Watch Ad Now';
+    document.getElementById('watchSpinner').style.display = 'none';
     setStatus('⚠️ Ad failed to load. Please try again.', 'err');
   }
 
   function watchAd() {
     const btn = document.getElementById('watchBtn');
     btn.disabled = true;
-    setStatus('Loading ad...', '');
+    document.getElementById('watchBtnText').textContent = 'Loading Ad...';
+    document.getElementById('watchSpinner').style.display = 'block';
+    setStatus('', '');
 
-    // Check if Monetag SDK loaded
     if (typeof show_10984967 === 'undefined') {
-      setStatus('⚠️ Ad network not available. Try again shortly.', 'err');
+      setStatus('⚠️ Ad network unavailable. Try again shortly.', 'err');
       btn.disabled = false;
+      document.getElementById('watchBtnText').textContent = 'Watch Ad Now';
+      document.getElementById('watchSpinner').style.display = 'none';
       return;
     }
 
+    // Show progress bar
+    const timer = document.getElementById('adTimer');
+    const fill = document.getElementById('adTimerFill');
+    timer.classList.add('visible');
+    let pct = 0;
+    const interval = setInterval(() => {
+      pct = Math.min(pct + 1, 95);
+      fill.style.width = pct + '%';
+    }, 150);
+
     show_10984967()
-      .then(() => onAdSuccess())
-      .catch(() => onAdFail());
+      .then(() => {
+        clearInterval(interval);
+        fill.style.width = '100%';
+        setTimeout(() => onAdSuccess(), 300);
+      })
+      .catch(() => {
+        clearInterval(interval);
+        onAdFail();
+      });
   }
 
   async function claimReward() {
@@ -295,10 +517,11 @@
 
     const btn = document.getElementById('claimBtn');
     btn.disabled = true;
-    setStatus('Verifying and granting access...', '');
+    document.getElementById('claimBtnText').textContent = 'Verifying...';
+    document.getElementById('claimSpinner').style.display = 'block';
+    setStatus('', '');
 
     try {
-      // Determine server base URL (same origin as this page)
       const base = window.location.origin;
       const res = await fetch(base + '/claim', {
         method: 'POST',
@@ -310,18 +533,21 @@
 
       if (data.ok) {
         setStep(3);
-        setStatus('🎉 Access granted for 24 hours! Go back to the bot.', 'ok');
-        // Close webapp after short delay
-        setTimeout(() => {
-          if (tg) tg.close();
-        }, 2500);
+        document.getElementById('claimBtnText').textContent = 'Access Granted!';
+        document.getElementById('claimSpinner').style.display = 'none';
+        setStatus('🎉 24-hour access is live! Head back to the bot.', 'ok');
+        setTimeout(() => { if (tg) tg.close(); }, 2500);
       } else {
         setStatus('❌ ' + (data.error || 'Something went wrong. Try /token again.'), 'err');
         btn.disabled = false;
+        document.getElementById('claimBtnText').textContent = 'Claim My Access';
+        document.getElementById('claimSpinner').style.display = 'none';
       }
     } catch (err) {
       setStatus('❌ Network error. Please try again.', 'err');
       btn.disabled = false;
+      document.getElementById('claimBtnText').textContent = 'Claim My Access';
+      document.getElementById('claimSpinner').style.display = 'none';
     }
   }
 </script>
