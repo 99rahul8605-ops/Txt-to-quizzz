@@ -102,11 +102,11 @@ def claim_reward():
             return jsonify({"ok": False, "error": "Invalid or expired session"}), 403
 
         # Store token in pending_tokens dict — bot's async loop will pick it up
-        # This avoids asyncio conflict between Flask and bot's event loop
         pending_tokens[user_id] = {
             "token": stored_param,
             "created_at": datetime.utcnow(),
-            "expires_at": datetime.utcnow() + timedelta(hours=24)
+            "quiz_limit": int(os.getenv('DAILY_QUIZ_LIMIT', 20)),
+            "quiz_used": 0
         }
 
         # Remove temp param after successful claim
@@ -173,14 +173,14 @@ async def init_db():
         logger.error(f"MongoDB connection error: {e}")
         return None
 
-# Create TTL index for token expiration
+# Create index for tokens collection
 async def create_ttl_index():
     try:
         if DB is not None:
-            await DB.tokens.create_index("expires_at", expireAfterSeconds=0)
-            logger.info("Created TTL index for token expiration")
+            await DB.tokens.create_index("user_id", unique=True)
+            logger.info("Created index for tokens")
     except Exception as e:
-        logger.error(f"Error creating TTL index: {e}")
+        logger.error(f"Error creating token index: {e}")
 
 # Create index for sudo users
 async def create_sudo_index():
@@ -306,12 +306,9 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                     minutes = int(time_left.total_seconds() // 60)
                     seconds = int(time_left.total_seconds() % 60)
                     await update.message.reply_text(
-                        f"⏳ <b>Cooldown Active!</b>
-
-You already have access. Please wait <b>{minutes}m {seconds}s</b> before watching another ad.
-
-Your access expires in: {format_time_left(expires_at)}",
-                        parse_mode='HTML'
+                        f"⏳ <b>Cooldown Active!</b>\\n\\n"
+                        f"You still have <b>{quizzes_left} quiz(es)</b> remaining.\\n"
+                        f"Please wait <b>{minutes}m {seconds}s</b> before watching another ad.",
                     )
                     return
 
@@ -658,55 +655,28 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Check if user is premium
     is_prem = await is_premium(user_id)
     
-    # For token users, check daily quiz limit
-    if not is_prem:
-        # Get today's date in UTC
-        today_utc = datetime.utcnow().date()
-        
-        # Check daily quiz count
-        if DB is not None:
-            user_data = await DB.users.find_one({"user_id": user_id})
-            quiz_count = 0
-            
-            if user_data:
-                # Check if last quiz date is today
-                last_quiz_date = user_data.get("last_quiz_date")
-                if last_quiz_date and last_quiz_date.date() == today_utc:
-                    quiz_count = user_data.get("quiz_count", 0)
-            
-            # Check if user has exceeded daily limit
-            if quiz_count >= DAILY_QUIZ_LIMIT:
-                # Create message with button
-                message_text = (
-                    f"⚠️ You've reached your daily quiz limit ({DAILY_QUIZ_LIMIT} quizzes).\n\n"
-                    f"Token users are limited to {DAILY_QUIZ_LIMIT} quizzes per day.\n"
-                    "Upgrade to premium for unlimited access!\n\n"
-                    "Send /plan to know our premium plans"
-                )
-                
-                # Create inline buttons
-                keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            "💎 Contact for Premium",
-                            url=f"https://t.me/{PREMIUM_CONTACT.lstrip('@')}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "📋 View Premium Plans",
-                            callback_data="premium_plans"
-                        )
-                    ]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await update.message.reply_text(
-                    message_text,
-                    parse_mode='Markdown',
-                    reply_markup=reply_markup
-                )
-                return
+    # For token users, check token quiz limit
+    token_data = None
+    quiz_used = 0
+    quiz_limit = DAILY_QUIZ_LIMIT
+    if not is_prem and DB is not None:
+        token_data = await DB.tokens.find_one({"user_id": user_id})
+        if token_data:
+            quiz_used = token_data.get("quiz_used", 0)
+            quiz_limit = token_data.get("quiz_limit", DAILY_QUIZ_LIMIT)
+
+        if quiz_used >= quiz_limit:
+            keyboard = [
+                [InlineKeyboardButton("▶️ Watch Ad for More", callback_data="get_token")],
+                [InlineKeyboardButton("💎 Get Premium", callback_data="premium_plans")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                f"⚠️ <b>Quiz limit reached!</b>\n\nYou've used all <b>{quiz_limit} quizzes</b> from your last ad.\n\nWatch another ad with /token to get {DAILY_QUIZ_LIMIT} more quizzes, or upgrade to premium for unlimited access!",
+                parse_mode='HTML',
+                reply_markup=reply_markup
+            )
+            return
     
     if not update.message.document.file_name.endswith('.txt'):
         await update.message.reply_text("❌ Please send a .txt file")
@@ -722,56 +692,20 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         processed_content = preprocess_content(content)
         valid_questions, errors = parse_quiz_file(processed_content)
         
-        # For non-premium users, enforce daily limit
-        if not is_prem and valid_questions:
-            # Get current count again to be safe
-            if DB is not None:
-                user_data = await DB.users.find_one({"user_id": user_id})
-                quiz_count = 0
-                if user_data:
-                    last_quiz_date = user_data.get("last_quiz_date")
-                    if last_quiz_date and last_quiz_date.date() == today_utc:
-                        quiz_count = user_data.get("quiz_count", 0)
-            
-            remaining_quota = DAILY_QUIZ_LIMIT - quiz_count
+        # For non-premium users, enforce token quiz limit
+        if not is_prem and valid_questions and token_data:
+            remaining_quota = quiz_limit - quiz_used
             if remaining_quota <= 0:
-                # Create message with button
-                message_text = (
-                    f"⚠️ You've reached your daily quiz limit ({DAILY_QUIZ_LIMIT} quizzes).\n\n"
-                    f"Token users are limited to {DAILY_QUIZ_LIMIT} quizzes per day.\n"
-                    "Upgrade to premium for unlimited access!\n\n"
-                    "Send /plan to know our premium plans"
-                )
-                
-                # Create inline buttons
-                keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            "💎 Contact for Premium",
-                            url=f"https://t.me/{PREMIUM_CONTACT.lstrip('@')}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "📋 View Premium Plans",
-                            callback_data="premium_plans"
-                        )
-                    ]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
                 await update.message.reply_text(
-                    message_text,
-                    parse_mode='Markdown',
-                    reply_markup=reply_markup
+                    f"⚠️ <b>Quiz limit reached!</b>\n\nWatch another ad with /token to get more quizzes.",
+                    parse_mode='HTML'
                 )
                 return
-                
             if len(valid_questions) > remaining_quota:
                 valid_questions = valid_questions[:remaining_quota]
                 if not errors:
                     errors = []
-                errors.append(f"⚠️ Only first {remaining_quota} questions sent due to daily limit")
+                errors.append(f"⚠️ Only first {remaining_quota} questions sent due to token limit")
         
         # Report errors
         if errors:
@@ -825,17 +759,13 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 except Exception as e:
                     logger.error(f"Poll creation error: {str(e)}")
             
-            # Update quiz count for token users
-            if not is_prem and DB is not None:
-                today_utc = datetime.utcnow().date()
-                await DB.users.update_one(
+            # Update quiz_used count in token
+            if not is_prem and DB is not None and token_data:
+                await DB.tokens.update_one(
                     {"user_id": user_id},
-                    {
-                        "$set": {"last_quiz_date": datetime.utcnow()},
-                        "$inc": {"quiz_count": sent_count}
-                    },
-                    upsert=True
+                    {"$inc": {"quiz_used": sent_count}}
                 )
+                TOKEN_CACHE.pop(user_id, None)  # clear cache
             
             await msg.edit_text(
                 f"✅ Successfully sent {sent_count} quiz questions!"
@@ -1422,7 +1352,10 @@ async def has_valid_token(user_id):
     if DB is not None:
         try:
             token_data = await DB.tokens.find_one({"user_id": user_id})
-            result = token_data is not None
+            if token_data:
+                quiz_used = token_data.get("quiz_used", 0)
+                quiz_limit = token_data.get("quiz_limit", int(os.getenv('DAILY_QUIZ_LIMIT', 20)))
+                result = quiz_used < quiz_limit
         except Exception as e:
             logger.error(f"Token check error: {e}")
     
@@ -1489,9 +1422,10 @@ async def process_pending_tokens():
                     except Exception:
                         pass
                     try:
+                        quiz_limit = int(os.getenv('DAILY_QUIZ_LIMIT', 20))
                         await bot.send_message(
                             chat_id=chat_id,
-                            text="🎉 <b>Access Granted!</b>\n\nYou have <b>24 hours</b> of full access. Enjoy! 🚀\n\nUse /createquiz to get started.",
+                            text=f"🎉 <b>Access Granted!</b>\n\nYou can now generate <b>{quiz_limit} quizzes</b>! 🚀\n\nSend a .txt file to /createquiz to get started.",
                             parse_mode='HTML'
                         )
                     except Exception as e:
