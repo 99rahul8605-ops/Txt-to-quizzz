@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Get Access</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap');
+
+  :root {
+    --bg: #0d0f14;
+    --card: #161a23;
+    --accent: #f0c040;
+    --accent2: #e07b30;
+    --text: #eef0f5;
+    --muted: #7a8099;
+    --success: #4cdc8a;
+    --radius: 16px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 32px 24px;
+    max-width: 400px;
+    width: 100%;
+    text-align: center;
+    border: 1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: -80px; left: -80px;
+    width: 220px; height: 220px;
+    background: radial-gradient(circle, rgba(240,192,64,0.12) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .icon {
+    font-size: 52px;
+    margin-bottom: 12px;
+    line-height: 1;
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.3px;
+    margin-bottom: 8px;
+  }
+
+  .sub {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 28px;
+  }
+
+  .badge-row {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+
+  .badge {
+    background: rgba(240,192,64,0.1);
+    border: 1px solid rgba(240,192,64,0.25);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 5px 12px;
+    border-radius: 999px;
+  }
+
+  .btn {
+    display: block;
+    width: 100%;
+    padding: 15px 20px;
+    border-radius: 12px;
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    border: none;
+    transition: transform 0.15s, opacity 0.15s;
+  }
+
+  .btn:active { transform: scale(0.97); }
+
+  .btn-ad {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #1a1200;
+    margin-bottom: 12px;
+  }
+
+  .btn-claim {
+    background: var(--success);
+    color: #0a2018;
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .status {
+    margin-top: 18px;
+    font-size: 13px;
+    min-height: 20px;
+    color: var(--muted);
+    transition: color 0.3s;
+  }
+
+  .status.ok { color: var(--success); }
+  .status.err { color: #f06060; }
+
+  .step-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 24px;
+  }
+
+  .step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    max-width: 90px;
+  }
+
+  .step-num {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted);
+    transition: all 0.3s;
+  }
+
+  .step.active .step-num {
+    background: rgba(240,192,64,0.15);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .step.done .step-num {
+    background: rgba(76,220,138,0.15);
+    border-color: var(--success);
+    color: var(--success);
+  }
+
+  .step-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .step.active .step-label { color: var(--text); }
+
+  .divider {
+    width: 16px; height: 1px;
+    background: rgba(255,255,255,0.1);
+    margin-top: 14px;
+    align-self: flex-start;
+    margin-top: 13px;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="icon">🎬</div>
+  <h1>Unlock 24-Hour Access</h1>
+  <p class="sub">Watch a short ad to get full access for 24 hours — completely free.</p>
+
+  <div class="step-row">
+    <div class="step active" id="s1">
+      <div class="step-num">1</div>
+      <div class="step-label">Watch Ad</div>
+    </div>
+    <div class="divider"></div>
+    <div class="step" id="s2">
+      <div class="step-num">2</div>
+      <div class="step-label">Claim</div>
+    </div>
+    <div class="divider"></div>
+    <div class="step" id="s3">
+      <div class="step-num">3</div>
+      <div class="step-label">Access</div>
+    </div>
+  </div>
+
+  <div class="badge-row">
+    <span class="badge">✅ 24h Full Access</span>
+    <span class="badge">🚫 No Signup</span>
+    <span class="badge">⚡ Instant</span>
+  </div>
+
+  <button class="btn btn-ad" id="watchBtn" onclick="watchAd()">▶️ Watch Ad Now</button>
+  <button class="btn btn-claim" id="claimBtn" onclick="claimReward()" disabled>🎁 Claim My Access</button>
+
+  <div class="status" id="statusMsg"></div>
+</div>
+
+<script>
+  // Init Telegram WebApp
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) tg.ready();
+
+  // Get params from URL
+  const params = new URLSearchParams(window.location.search);
+  const userId = params.get('user_id');
+  const param = params.get('param');
+
+  let adWatched = false;
+
+  function setStatus(msg, type = '') {
+    const el = document.getElementById('statusMsg');
+    el.textContent = msg;
+    el.className = 'status ' + type;
+  }
+
+  function setStep(n) {
+    for (let i = 1; i <= 3; i++) {
+      const s = document.getElementById('s' + i);
+      s.className = 'step' + (i < n ? ' done' : i === n ? ' active' : '');
+      if (i < n) s.querySelector('.step-num').textContent = '✓';
+    }
+  }
+
+  function watchAd() {
+    const btn = document.getElementById('watchBtn');
+    btn.disabled = true;
+    setStatus('Loading ad...', '');
+
+    // Show ad using the provided ad SDK
+    show_10984967('pop')
+      .then(() => {
+        adWatched = true;
+        setStep(2);
+        document.getElementById('claimBtn').disabled = false;
+        setStatus('✅ Ad watched! Now claim your access below.', 'ok');
+      })
+      .catch(e => {
+        // On error, still try rewarded interstitial as fallback
+        console.error('Pop ad error:', e);
+        return show_10984967();
+      })
+      .then((res) => {
+        if (!adWatched && res !== undefined) {
+          adWatched = true;
+          setStep(2);
+          document.getElementById('claimBtn').disabled = false;
+          setStatus('✅ Ad watched! Now claim your access below.', 'ok');
+        }
+      })
+      .catch(() => {
+        btn.disabled = false;
+        setStatus('⚠️ Ad failed to load. Please try again.', 'err');
+      });
+  }
+
+  async function claimReward() {
+    if (!adWatched) {
+      setStatus('⚠️ Please watch the ad first!', 'err');
+      return;
+    }
+
+    const btn = document.getElementById('claimBtn');
+    btn.disabled = true;
+    setStatus('Verifying and granting access...', '');
+
+    try {
+      // Determine server base URL (same origin as this page)
+      const base = window.location.origin;
+      const res = await fetch(base + '/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, param: param })
+      });
+
+      const data = await res.json();
+
+      if (data.ok) {
+        setStep(3);
+        setStatus('🎉 Access granted for 24 hours! Go back to the bot.', 'ok');
+        // Close webapp after short delay
+        setTimeout(() => {
+          if (tg) tg.close();
+        }, 2500);
+      } else {
+        setStatus('❌ ' + (data.error || 'Something went wrong. Try /token again.'), 'err');
+        btn.disabled = false;
+      }
+    } catch (err) {
+      setStatus('❌ Network error. Please try again.', 'err');
+      btn.disabled = false;
+    }
+  }
+</script>
+
+<!-- Ad SDK: replace 10984967 with your actual publisher tag ID -->
+<script src="//niphausten.com/10984967/invoke.js" async></script>
+
+</body>
+</html>

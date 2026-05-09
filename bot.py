@@ -10,8 +10,8 @@ import string
 import random
 import aiohttp
 import re
-from flask import Flask
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from flask import Flask, request as flask_request, jsonify, send_from_directory
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -60,7 +60,7 @@ CACHE_EXPIRY = 60  # seconds
 # Broadcast state
 BROADCAST_STATE = {}
 
-# Flask app for health checks
+# Flask app for health checks and Mini Web App
 app = Flask(__name__)
 
 @app.route('/')
@@ -68,6 +68,63 @@ app = Flask(__name__)
 @app.route('/status')
 def health_check():
     return "Bot is running", 200
+
+@app.route('/webapp')
+def serve_webapp():
+    """Serve the Mini Web App HTML page"""
+    return send_from_directory('.', 'webapp.html')
+
+@app.route('/claim', methods=['POST'])
+def claim_reward():
+    """API endpoint called by webapp after user watches ad"""
+    import asyncio as _asyncio
+    try:
+        data = flask_request.get_json()
+        user_id = data.get('user_id')
+        param = data.get('param')
+
+        if not user_id or not param:
+            return jsonify({"ok": False, "error": "Missing params"}), 400
+
+        user_id = int(user_id)
+
+        # Validate param
+        stored_param = temp_params.get(user_id)
+        if not stored_param or stored_param != param:
+            return jsonify({"ok": False, "error": "Invalid or expired session"}), 403
+
+        # Grant 24h token in MongoDB (run async in new loop)
+        def run_async(coro):
+            loop = _asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(coro)
+            finally:
+                loop.close()
+
+        async def store_token():
+            if DB is not None:
+                await DB.tokens.update_one(
+                    {"user_id": user_id},
+                    {"$set": {
+                        "token": stored_param,
+                        "created_at": datetime.utcnow(),
+                        "expires_at": datetime.utcnow() + timedelta(hours=24)
+                    }},
+                    upsert=True
+                )
+                # Clear token cache so next check hits DB
+                TOKEN_CACHE.pop(user_id, None)
+
+        run_async(store_token())
+
+        # Remove temp param after successful claim
+        temp_params.pop(user_id, None)
+
+        return jsonify({"ok": True, "message": "Access granted for 24 hours!"})
+
+    except Exception as e:
+        logger.error(f"Claim error: {e}")
+        return jsonify({"ok": False, "error": "Server error"}), 500
 
 def run_flask():
     port = int(os.environ.get('PORT', 8000))
@@ -227,64 +284,53 @@ async def is_sudo(user_id):
     }
     return result
 
-# Premium token command
+# Ad-based access command (replaces old token system)
 async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await record_user_interaction(update)
     user = update.effective_user
     user_id = user.id
-    
+
     # Premium and sudo users don't need tokens
     if await is_sudo(user_id) or await is_premium(user_id):
         await update.message.reply_text(
-            "🌟 You are a premium user! You don't need a token to use the bot.",
+            "🌟 You are a premium user! You don't need to watch ads.",
             parse_mode='Markdown'
         )
         return
-    
+
     # Check if user already has valid token
     if await has_valid_token(user_id):
         await update.message.reply_text(
-            "✅ Your access token is already active! Enjoy your 24-hour access.",
+            "✅ You already have active access! Enjoy your 24-hour access.",
             parse_mode='Markdown'
         )
         return
-    
-    # Generate new verification param
+
+    # Generate a session param tied to this user
     param = generate_random_param()
     temp_params[user_id] = param
-    
-    # Create deep link
-    bot_username = os.getenv('BOT_USERNAME', context.bot.username)
-    deep_link = f"https://t.me/{bot_username}?start={param}"
-    
-    # Get shortened URL
-    short_url = await get_shortened_url(deep_link)
-    if not short_url:
-        await update.message.reply_text(
-            "⚠️ Failed to generate verification link. Please try again.",
-            parse_mode='Markdown'
-        )
-        return
-    
-    # Create response message
+
+    # Build the webapp URL — set WEBAPP_URL env var to your Flask server's public URL
+    webapp_base = os.getenv('WEBAPP_URL', 'https://your-bot-server.com')
+    webapp_url = f"{webapp_base}/webapp?user_id={user_id}&param={param}"
+
     response_text = (
-        "🔑 Click the button below to verify your access token:\n\n"
+        "🎬 <b>Watch a short ad to unlock 24-hour access!</b>\n\n"
         "✨ <b>What you'll get:</b>\n"
         "1. Full access for 24 hours\n"
-        "2. Increased command limits\n"
+        "2. Unlimited commands\n"
         "3. All features unlocked\n\n"
-        "This link is valid for 5 minutes"
+        "👇 Tap the button below, watch the ad, then claim your reward."
     )
-    
-    # Create inline button
+
     keyboard = [[
         InlineKeyboardButton(
-            "✅ Verify Token Now",
-            url=short_url
+            "▶️ Watch Ad & Get Access",
+            web_app=WebAppInfo(url=webapp_url)
         )
     ]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     await update.message.reply_text(
         response_text,
         parse_mode='HTML',
@@ -298,46 +344,13 @@ async def check_access(update: Update, context: ContextTypes.DEFAULT_TYPE, handl
         return await handler(update, context)
     
     await update.message.reply_text(
-        "🔒 Access restricted! You need premium or a valid token to use this feature.\n\n"
-        "Use /token to get your access token or contact us for premium.",
+        "🔒 Access restricted! You need premium or to watch an ad to use this feature.\n\n"
+        "Use /token to watch a short ad and get 24-hour access, or contact us for premium.",
         parse_mode='Markdown'
     )
 
 # Wrapper functions for access verification
 async def start_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Handle token activation
-    if context.args and context.args[0]:
-        token = context.args[0]
-        user = update.effective_user
-        user_id = user.id
-        
-        # Check if it's a verification token
-        if user_id in temp_params and temp_params[user_id] == token:
-            # Store token in database - check if DB is initialized (not None)
-            if DB is not None:
-                await DB.tokens.update_one(
-                    {"user_id": user_id},
-                    {"$set": {
-                        "token": token,
-                        "created_at": datetime.utcnow(),
-                        "expires_at": datetime.utcnow() + timedelta(hours=24)
-                    }},
-                    upsert=True
-                )
-            
-            # Remove temp param and notify user
-            del temp_params[user_id]
-            await update.message.reply_text(
-                "✅ Token activated successfully! Enjoy your 24-hour access.",
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(
-                "⚠️ Invalid or expired verification token. Generate a new one with /token.",
-                parse_mode='Markdown'
-            )
-        return
-    
     # Skip token check for the start command itself
     await start(update, context)
 
@@ -361,15 +374,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "I can turn your text files into interactive 10-second quizzes!\n\n"
         "🔹 Use /createquiz - Start quiz creation\n"
         "🔹 Use /help - Show formatting guide\n"
-        "🔹 Use /token - Get your access token\n"
+        "🔹 Use /token - Watch a short ad for 24h access\n"
         "🔹 Premium users get unlimited access!\n\n"
     )
     
-    # Add token status for non-premium users
+    # Add access status for non-premium users
     if not (await is_sudo(update.effective_user.id) or await is_premium(update.effective_user.id)):
         welcome_msg += (
-            "🔒 You need premium or a token to access all features\n"
-            "Get your access token with /token - Valid for 24 hours\n\n"
+            "🔒 Watch a short ad with /token to unlock all features for 24 hours\n\n"
         )
     
     welcome_msg += "Let's make learning fun!"
