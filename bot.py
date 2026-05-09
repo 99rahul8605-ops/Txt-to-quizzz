@@ -310,8 +310,13 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     param = generate_random_param()
     temp_params[user_id] = param
 
-    # Build the webapp URL — set WEBAPP_URL env var to your Flask server's public URL
-    webapp_base = os.getenv('WEBAPP_URL', 'https://your-bot-server.com')
+    # Get bot username from Telegram API and build webapp URL
+    # WEBAPP_URL env override karo agar custom domain ho, warna bot username se banao
+    webapp_base = os.getenv('WEBAPP_URL')
+    if not webapp_base:
+        bot_me = await context.bot.get_me()
+        bot_username = bot_me.username  # e.g. "MyQuizBot"
+        webapp_base = f"https://{bot_username}.t.me"
     webapp_url = f"{webapp_base}/webapp?user_id={user_id}&param={param}"
 
     response_text = (
