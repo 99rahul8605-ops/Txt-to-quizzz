@@ -63,6 +63,12 @@ BROADCAST_STATE = {}
 # Pending token rewards from webapp (Flask -> async bot bridge)
 pending_tokens = {}
 
+# Store message_ids of /token messages to delete after reward
+TOKEN_MESSAGES = {}  # user_id -> (chat_id, message_id)
+
+# Reference to bot application for use in background tasks
+application_ref = [None]
+
 # Flask app for health checks and Mini Web App
 app = Flask(__name__)
 
@@ -316,11 +322,25 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     ]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
+    sent = await update.message.reply_text(
         response_text,
         parse_mode='HTML',
         reply_markup=reply_markup
     )
+    # Store message info for deletion after reward
+    TOKEN_MESSAGES[user_id] = (update.effective_chat.id, sent.message_id)
+
+# Refresh command — clears token cache for current user
+async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    TOKEN_CACHE.pop(user_id, None)
+    PREMIUM_CACHE.pop(user_id, None)
+    SUDO_CACHE.pop(user_id, None)
+    has_token = await has_valid_token(user_id)
+    if has_token:
+        await update.message.reply_text("✅ Cache refreshed! You have active access.", parse_mode='Markdown')
+    else:
+        await update.message.reply_text("🔄 Cache refreshed! No active access found.\nUse /token to watch an ad.", parse_mode='Markdown')
 
 # Token verification helper
 async def check_access(update: Update, context: ContextTypes.DEFAULT_TYPE, handler):
@@ -1436,6 +1456,24 @@ async def process_pending_tokens():
                     )
                 pending_tokens.pop(user_id, None)
                 logger.info(f"Token saved for user {user_id}")
+
+                # Delete old /token message and send success notification
+                bot = application_ref[0]
+                if bot and user_id in TOKEN_MESSAGES:
+                    chat_id, msg_id = TOKEN_MESSAGES.pop(user_id)
+                    try:
+                        await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                    except Exception:
+                        pass
+                    try:
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text="🎉 <b>Access Granted!</b>\n\nYou have <b>24 hours</b> of full access. Enjoy! 🚀\n\nUse /createquiz to get started.",
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to send reward msg to {user_id}: {e}")
+
             except Exception as e:
                 logger.error(f"Error saving pending token for {user_id}: {e}")
 
@@ -1462,6 +1500,7 @@ async def main_async() -> None:
     
     # Create Telegram application
     application = ApplicationBuilder().token(TOKEN).pool_timeout(30).build()
+    application_ref[0] = application.bot
     
     # Add handlers
     application.add_handler(CommandHandler("start", start_wrapper))
@@ -1469,6 +1508,7 @@ async def main_async() -> None:
     application.add_handler(CommandHandler("createquiz", create_quiz_wrapper))
     application.add_handler(CommandHandler("stats", stats_command_wrapper))
     application.add_handler(CommandHandler("token", token_command))
+    application.add_handler(CommandHandler("refresh", refresh_command))
     application.add_handler(CommandHandler("plan", plan_command))
     application.add_handler(CommandHandler("myplan", my_plan_command))
     application.add_handler(MessageHandler(filters.Document.TEXT, handle_document_wrapper))
