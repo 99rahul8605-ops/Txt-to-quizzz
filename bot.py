@@ -212,7 +212,9 @@ async def create_invite_index():
         if DB is not None:
             await DB.invite_points.create_index("user_id", unique=True)
             await DB.invite_points.create_index("invited_users")
-            logger.info("Created index for invite_points")
+            await DB.redeem_requests.create_index("user_id")
+            await DB.redeem_requests.create_index("status")
+            logger.info("Created index for invite_points and redeem_requests")
     except Exception as e:
         logger.error(f"Error creating invite index: {e}")
 
@@ -335,8 +337,7 @@ async def add_invite_points(referrer_id: int, new_user_id: int) -> bool:
 
 async def redeem_points_for_premium(user_id: int) -> tuple[bool, str]:
     """
-    Deduct REDEEM_POINTS_REQUIRED and grant REDEEM_PREMIUM_DAYS of premium.
-    Returns (success, message).
+    Auto-grant REDEEM_PREMIUM_DAYS of premium if user has enough points.
     """
     if DB is None:
         return False, "Database unavailable."
@@ -347,7 +348,7 @@ async def redeem_points_for_premium(user_id: int) -> tuple[bool, str]:
         if points < REDEEM_POINTS_REQUIRED:
             return False, f"You only have *{points} points*. Need *{REDEEM_POINTS_REQUIRED}* to redeem."
 
-        # Deduct points
+        # Deduct points first
         await DB.invite_points.update_one(
             {"user_id": user_id},
             {"$inc": {"points": -REDEEM_POINTS_REQUIRED}}
@@ -357,7 +358,7 @@ async def redeem_points_for_premium(user_id: int) -> tuple[bool, str]:
         now = datetime.utcnow()
         expiry = now + timedelta(days=REDEEM_PREMIUM_DAYS)
 
-        # Check if user already has premium — extend it
+        # If already has premium, extend it
         existing = await DB.premium_users.find_one({"user_id": user_id})
         if existing and existing["expiry_date"] > now:
             expiry = existing["expiry_date"] + timedelta(days=REDEEM_PREMIUM_DAYS)
@@ -372,13 +373,12 @@ async def redeem_points_for_premium(user_id: int) -> tuple[bool, str]:
             }},
             upsert=True
         )
-        # Clear premium cache
         PREMIUM_CACHE.pop(user_id, None)
 
         expiry_ist = format_ist(expiry)
         return True, (
             f"🎉 *Premium Activated!*\n\n"
-            f"✅ {REDEEM_PREMIUM_DAYS}-day premium unlocked\n"
+            f"✅ *{REDEEM_PREMIUM_DAYS}-day Premium* unlocked\n"
             f"📅 Expires: `{expiry_ist}` IST\n\n"
             f"Enjoy unlimited quiz creation! 🚀"
         )
@@ -478,7 +478,10 @@ async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     success, msg = await redeem_points_for_premium(user_id)
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    keyboard = [[InlineKeyboardButton("📋 View My Plan", callback_data="my_plan")]] if success else \
+               [[InlineKeyboardButton("👥 Invite Friends", callback_data="show_invite"),
+                 InlineKeyboardButton("💎 Buy Premium", callback_data="premium_plans")]]
+    await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -561,7 +564,7 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
 
-    # Clear all caches
+    # Clear all in-memory caches
     TOKEN_CACHE.pop(user_id, None)
     PREMIUM_CACHE.pop(user_id, None)
     SUDO_CACHE.pop(user_id, None)
@@ -569,16 +572,24 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     TOKEN_MESSAGES.pop(user_id, None)
     pending_tokens.pop(user_id, None)
 
-    # Delete from DB
+    # Delete from DB — tokens, users, invite points, pending redeem requests
     if DB is not None:
         try:
             await DB.tokens.delete_one({"user_id": user_id})
             await DB.users.delete_one({"user_id": user_id})
+            await DB.invite_points.delete_one({"user_id": user_id})
+            await DB.redeem_requests.delete_many({"user_id": user_id})
         except Exception as e:
             logger.error(f"Refresh DB error: {e}")
 
     await update.message.reply_text(
-        "🔄 <b>Reset Complete!</b>\n\nAll your data has been cleared. Use /token to get access again.",
+        "🔄 <b>Full Reset Complete!</b>\n\n"
+        "Cleared:\n"
+        "• ✅ Access token\n"
+        "• ✅ Invite points\n"
+        "• ✅ Pending redeem requests\n"
+        "• ✅ All caches\n\n"
+        "Use /token to get access again.",
         parse_mode='HTML'
     )
 
