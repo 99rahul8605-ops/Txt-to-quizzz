@@ -286,14 +286,6 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    # Check if user already has valid token
-    if await has_valid_token(user_id):
-        await update.message.reply_text(
-            "✅ You already have active access! Enjoy your 24-hour access.",
-            parse_mode='Markdown'
-        )
-        return
-
     # Generate a session param tied to this user
     param = generate_random_param()
     temp_params[user_id] = param
