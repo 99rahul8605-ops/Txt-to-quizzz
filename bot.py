@@ -60,6 +60,9 @@ CACHE_EXPIRY = 60  # seconds
 # Broadcast state
 BROADCAST_STATE = {}
 
+# Pending token rewards from webapp (Flask -> async bot bridge)
+pending_tokens = {}
+
 # Flask app for health checks and Mini Web App
 app = Flask(__name__)
 
@@ -77,7 +80,6 @@ def serve_webapp():
 @app.route('/claim', methods=['POST'])
 def claim_reward():
     """API endpoint called by webapp after user watches ad"""
-    import asyncio as _asyncio
     try:
         data = flask_request.get_json()
         user_id = data.get('user_id')
@@ -93,32 +95,18 @@ def claim_reward():
         if not stored_param or stored_param != param:
             return jsonify({"ok": False, "error": "Invalid or expired session"}), 403
 
-        # Grant 24h token in MongoDB (run async in new loop)
-        def run_async(coro):
-            loop = _asyncio.new_event_loop()
-            try:
-                return loop.run_until_complete(coro)
-            finally:
-                loop.close()
-
-        async def store_token():
-            if DB is not None:
-                await DB.tokens.update_one(
-                    {"user_id": user_id},
-                    {"$set": {
-                        "token": stored_param,
-                        "created_at": datetime.utcnow(),
-                        "expires_at": datetime.utcnow() + timedelta(hours=24)
-                    }},
-                    upsert=True
-                )
-                # Clear token cache so next check hits DB
-                TOKEN_CACHE.pop(user_id, None)
-
-        run_async(store_token())
+        # Store token in pending_tokens dict — bot's async loop will pick it up
+        # This avoids asyncio conflict between Flask and bot's event loop
+        pending_tokens[user_id] = {
+            "token": stored_param,
+            "created_at": datetime.utcnow(),
+            "expires_at": datetime.utcnow() + timedelta(hours=24)
+        }
 
         # Remove temp param after successful claim
         temp_params.pop(user_id, None)
+        # Clear token cache
+        TOKEN_CACHE.pop(user_id, None)
 
         return jsonify({"ok": True, "message": "Access granted for 24 hours!"})
 
@@ -310,13 +298,13 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     param = generate_random_param()
     temp_params[user_id] = param
 
-    # Get bot username from Telegram API and build webapp URL
-    # WEBAPP_URL env override karo agar custom domain ho, warna bot username se banao
-    webapp_base = os.getenv('WEBAPP_URL')
-    if not webapp_base:
-        bot_me = await context.bot.get_me()
-        bot_username = bot_me.username  # e.g. "MyQuizBot"
-        webapp_base = f"https://{bot_username}.t.me"
+    # Auto-detect server URL — koi env set karne ki zaroorat nahi
+    # Render pe RENDER_EXTERNAL_URL automatically available hota hai
+    webapp_base = (
+        os.getenv('WEBAPP_URL') or
+        os.getenv('RENDER_EXTERNAL_URL') or
+        f"http://localhost:{os.environ.get('PORT', 8000)}"
+    )
     webapp_url = f"{webapp_base}/webapp?user_id={user_id}&param={param}"
 
     response_text = (
@@ -1439,6 +1427,26 @@ async def is_premium(user_id):
     }
     return result
 
+async def process_pending_tokens():
+    """Background task: flush pending_tokens from Flask into MongoDB"""
+    while True:
+        await asyncio.sleep(2)
+        if not pending_tokens:
+            continue
+        items = list(pending_tokens.items())
+        for user_id, token_data in items:
+            try:
+                if DB is not None:
+                    await DB.tokens.update_one(
+                        {"user_id": user_id},
+                        {"$set": token_data},
+                        upsert=True
+                    )
+                pending_tokens.pop(user_id, None)
+                logger.info(f"Token saved for user {user_id}")
+            except Exception as e:
+                logger.error(f"Error saving pending token for {user_id}: {e}")
+
 async def main_async() -> None:
     """Async main function"""
     global DB, SESSION
@@ -1498,6 +1506,9 @@ async def main_async() -> None:
             read_timeout=10
         )
         logger.info("Bot is now running")
+
+        # Start background task to flush pending tokens to DB
+        asyncio.create_task(process_pending_tokens())
         
         # Keep running until interrupted
         while True:
