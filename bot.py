@@ -51,6 +51,11 @@ PREMIUM_CONTACT = "@rahul_g8"  # Premium contact
 # Quiz limit configuration
 DAILY_QUIZ_LIMIT = int(os.getenv('DAILY_QUIZ_LIMIT', 20))  # Default is 20 quizzes/day
 
+# Invite & Points System
+INVITE_POINTS = 2          # Points earned per successful invite
+REDEEM_POINTS_REQUIRED = 10  # Points needed to redeem premium
+REDEEM_PREMIUM_DAYS = 2    # Days of premium given on redemption
+
 # Caches for performance
 SUDO_CACHE = {}
 TOKEN_CACHE = {}
@@ -201,6 +206,16 @@ async def create_premium_index():
     except Exception as e:
         logger.error(f"Error creating premium index: {e}")
 
+# Create index for invite points collection
+async def create_invite_index():
+    try:
+        if DB is not None:
+            await DB.invite_points.create_index("user_id", unique=True)
+            await DB.invite_points.create_index("invited_users")
+            logger.info("Created index for invite_points")
+    except Exception as e:
+        logger.error(f"Error creating invite index: {e}")
+
 # Optimized user interaction recording
 async def record_user_interaction(update: Update):
     try:
@@ -277,6 +292,195 @@ async def is_sudo(user_id):
         'expiry': time.time() + CACHE_EXPIRY
     }
     return result
+
+# ─── INVITE & POINTS HELPERS ──────────────────────────────────────────────────
+
+async def get_user_points(user_id: int) -> int:
+    """Get current invite points for a user"""
+    if DB is None:
+        return 0
+    try:
+        doc = await DB.invite_points.find_one({"user_id": user_id})
+        return doc.get("points", 0) if doc else 0
+    except Exception as e:
+        logger.error(f"get_user_points error: {e}")
+        return 0
+
+async def add_invite_points(referrer_id: int, new_user_id: int) -> bool:
+    """
+    Award INVITE_POINTS to referrer when a new user joins via their link.
+    Returns True if points were awarded (first-time invite only).
+    """
+    if DB is None:
+        return False
+    try:
+        # Ensure the new user hasn't already been counted
+        existing = await DB.invite_points.find_one({"invited_users": new_user_id})
+        if existing:
+            return False  # already credited for this user
+
+        result = await DB.invite_points.update_one(
+            {"user_id": referrer_id},
+            {
+                "$inc": {"points": INVITE_POINTS},
+                "$push": {"invited_users": new_user_id},
+                "$setOnInsert": {"user_id": referrer_id}
+            },
+            upsert=True
+        )
+        return True
+    except Exception as e:
+        logger.error(f"add_invite_points error: {e}")
+        return False
+
+async def redeem_points_for_premium(user_id: int) -> tuple[bool, str]:
+    """
+    Deduct REDEEM_POINTS_REQUIRED and grant REDEEM_PREMIUM_DAYS of premium.
+    Returns (success, message).
+    """
+    if DB is None:
+        return False, "Database unavailable."
+    try:
+        doc = await DB.invite_points.find_one({"user_id": user_id})
+        points = doc.get("points", 0) if doc else 0
+
+        if points < REDEEM_POINTS_REQUIRED:
+            return False, f"You only have *{points} points*. Need *{REDEEM_POINTS_REQUIRED}* to redeem."
+
+        # Deduct points
+        await DB.invite_points.update_one(
+            {"user_id": user_id},
+            {"$inc": {"points": -REDEEM_POINTS_REQUIRED}}
+        )
+
+        # Grant premium
+        now = datetime.utcnow()
+        expiry = now + timedelta(days=REDEEM_PREMIUM_DAYS)
+
+        # Check if user already has premium — extend it
+        existing = await DB.premium_users.find_one({"user_id": user_id})
+        if existing and existing["expiry_date"] > now:
+            expiry = existing["expiry_date"] + timedelta(days=REDEEM_PREMIUM_DAYS)
+
+        await DB.premium_users.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "user_id": user_id,
+                "expiry_date": expiry,
+                "plan": f"{REDEEM_PREMIUM_DAYS}-Day (Points Redeem)",
+                "granted_at": now
+            }},
+            upsert=True
+        )
+        # Clear premium cache
+        PREMIUM_CACHE.pop(user_id, None)
+
+        expiry_ist = format_ist(expiry)
+        return True, (
+            f"🎉 *Premium Activated!*\n\n"
+            f"✅ {REDEEM_PREMIUM_DAYS}-day premium unlocked\n"
+            f"📅 Expires: `{expiry_ist}` IST\n\n"
+            f"Enjoy unlimited quiz creation! 🚀"
+        )
+    except Exception as e:
+        logger.error(f"redeem_points_for_premium error: {e}")
+        return False, "Something went wrong. Please try again."
+
+# ─── INVITE COMMAND ────────────────────────────────────────────────────────────
+
+async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await record_user_interaction(update)
+    user = update.effective_user
+    user_id = user.id
+
+    points = await get_user_points(user_id)
+    bot_username = (await context.bot.get_me()).username
+    invite_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+
+    needed = max(0, REDEEM_POINTS_REQUIRED - points)
+    progress_filled = min(points, REDEEM_POINTS_REQUIRED)
+    progress_bar = "🟢" * progress_filled + "⚪" * (REDEEM_POINTS_REQUIRED - progress_filled)
+
+    msg = (
+        f"👥 *Your Invite Dashboard*\n\n"
+        f"🔗 *Your invite link:*\n`{invite_link}`\n\n"
+        f"📊 *Points Progress:*\n"
+        f"{progress_bar}\n"
+        f"💎 `{points}/{REDEEM_POINTS_REQUIRED}` points\n\n"
+        f"📋 *How it works:*\n"
+        f"• Share your link with friends\n"
+        f"• Each new user = *+{INVITE_POINTS} points* for you\n"
+        f"• Collect *{REDEEM_POINTS_REQUIRED} points* → get *{REDEEM_PREMIUM_DAYS}-day Premium FREE*\n\n"
+    )
+
+    if points >= REDEEM_POINTS_REQUIRED:
+        msg += f"🎁 *You have enough points to redeem premium!*"
+        keyboard = [
+            [InlineKeyboardButton("🎁 Redeem Premium Now!", callback_data="redeem_points")],
+            [InlineKeyboardButton("📤 Share Invite Link", url=f"https://t.me/share/url?url={invite_link}&text=Join+this+quiz+bot!")]
+        ]
+    else:
+        msg += f"📌 Invite *{needed} more friend(s)* to unlock free premium!"
+        keyboard = [
+            [InlineKeyboardButton("📤 Share Invite Link", url=f"https://t.me/share/url?url={invite_link}&text=Join+this+quiz+bot!")],
+            [InlineKeyboardButton("💎 Buy Premium Instead", callback_data="premium_plans")]
+        ]
+
+    await update.message.reply_text(
+        msg,
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# ─── POINTS COMMAND ───────────────────────────────────────────────────────────
+
+async def points_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await record_user_interaction(update)
+    user_id = update.effective_user.id
+    points = await get_user_points(user_id)
+    needed = max(0, REDEEM_POINTS_REQUIRED - points)
+
+    progress_filled = min(points, REDEEM_POINTS_REQUIRED)
+    progress_bar = "🟢" * progress_filled + "⚪" * (REDEEM_POINTS_REQUIRED - progress_filled)
+
+    msg = (
+        f"💎 *Your Points Balance*\n\n"
+        f"{progress_bar}\n"
+        f"`{points}/{REDEEM_POINTS_REQUIRED}` points collected\n\n"
+    )
+
+    if points >= REDEEM_POINTS_REQUIRED:
+        msg += "✅ You can redeem *{}-day Premium* right now!".format(REDEEM_PREMIUM_DAYS)
+        keyboard = [[InlineKeyboardButton("🎁 Redeem Premium", callback_data="redeem_points")]]
+    else:
+        msg += f"📌 Need *{needed} more point(s)* to redeem free premium.\nUse /invite to earn points!"
+        keyboard = [
+            [InlineKeyboardButton("👥 Invite Friends", callback_data="show_invite")],
+            [InlineKeyboardButton("💎 Buy Premium", callback_data="premium_plans")]
+        ]
+
+    await update.message.reply_text(
+        msg, parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# ─── REDEEM COMMAND ───────────────────────────────────────────────────────────
+
+async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await record_user_interaction(update)
+    user_id = update.effective_user.id
+
+    if await is_premium(user_id):
+        await update.message.reply_text(
+            "🌟 You already have an active premium plan!\nUse /myplan to check details.",
+            parse_mode='Markdown'
+        )
+        return
+
+    success, msg = await redeem_points_for_premium(user_id)
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+# ──────────────────────────────────────────────────────────────────────────────
 
 # Ad-based access command (replaces old token system)
 async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -410,34 +614,77 @@ async def handle_document_wrapper(update: Update, context: ContextTypes.DEFAULT_
 # Original command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await record_user_interaction(update)
+    user = update.effective_user
+    user_id = user.id
+
+    # ── Handle referral deep-link (/start ref_XXXXXXX) ──────────────────────
+    if context.args:
+        arg = context.args[0]
+        if arg.startswith("ref_"):
+            try:
+                referrer_id = int(arg.split("_", 1)[1])
+                if referrer_id != user_id:          # can't invite yourself
+                    awarded = await add_invite_points(referrer_id, user_id)
+                    if awarded:
+                        # Notify referrer
+                        try:
+                            referrer_points = await get_user_points(referrer_id)
+                            notif = (
+                                f"🎉 *Someone joined using your invite link!*\n\n"
+                                f"💎 You earned *+{INVITE_POINTS} points*\n"
+                                f"📊 Total points: *{referrer_points}/{REDEEM_POINTS_REQUIRED}*\n"
+                            )
+                            if referrer_points >= REDEEM_POINTS_REQUIRED:
+                                notif += f"\n🎁 *You can now redeem {REDEEM_PREMIUM_DAYS}-day Premium!* Use /redeem"
+                            else:
+                                left = REDEEM_POINTS_REQUIRED - referrer_points
+                                notif += f"\n📌 Invite *{left} more* to unlock free premium!"
+
+                            keyboard = [[InlineKeyboardButton("🎁 Redeem Premium", callback_data="redeem_points")]] \
+                                if referrer_points >= REDEEM_POINTS_REQUIRED else \
+                                [[InlineKeyboardButton("👥 My Invites", callback_data="show_invite")]]
+
+                            await context.bot.send_message(
+                                chat_id=referrer_id,
+                                text=notif,
+                                parse_mode='Markdown',
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception:
+                            pass
+            except (ValueError, IndexError):
+                pass
+    # ────────────────────────────────────────────────────────────────────────
+
     welcome_msg = (
         "🌟 *Welcome to Quiz Bot!* 🌟\n\n"
         "I can turn your text files into interactive 10-second quizzes!\n\n"
-        "🔹 Use /createquiz - Start quiz creation\n"
-        "🔹 Use /help - Show formatting guide\n"
-        "🔹 Use /token - Watch a short ad for 24h access\n"
+        "🔹 /createquiz — Start quiz creation\n"
+        "🔹 /help — Show formatting guide\n"
+        "🔹 /token — Watch a short ad for 24h access\n"
+        "🔹 /invite — Invite friends & earn free Premium\n"
+        "🔹 /points — Check your invite points\n"
         "🔹 Premium users get unlimited access!\n\n"
     )
-    
-    # Add access status for non-premium users
-    if not (await is_sudo(update.effective_user.id) or await is_premium(update.effective_user.id)):
-        welcome_msg += (
-            "🔒 Watch a short ad with /token to unlock all features for 24 hours\n\n"
-        )
-    
+
+    if not (await is_sudo(user_id) or await is_premium(user_id)):
+        welcome_msg += "🔒 Use /token to unlock all features for 24 hours\n\n"
+
     welcome_msg += "Let's make learning fun!"
-    
-    # Create keyboard with tutorial and premium buttons
+
     keyboard = [
         [
             InlineKeyboardButton("🎥 Watch Tutorial", url=YOUTUBE_TUTORIAL),
             InlineKeyboardButton("💎 Premium Plans", callback_data="premium_plans")
+        ],
+        [
+            InlineKeyboardButton("👥 Invite & Earn Points", callback_data="show_invite")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     await update.message.reply_text(
-        welcome_msg, 
+        welcome_msg,
         parse_mode='Markdown',
         reply_markup=reply_markup
     )
@@ -682,15 +929,33 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             quiz_limit = token_data.get("quiz_limit", DAILY_QUIZ_LIMIT)
 
         if quiz_used >= quiz_limit:
+            # Check user's current invite points
+            user_points = await get_user_points(user_id)
+            can_redeem = user_points >= REDEEM_POINTS_REQUIRED
+
+            limit_msg = (
+                f"⚠️ <b>Quiz Limit Reached!</b>\n\n"
+                f"You've used all <b>{quiz_limit} quizzes</b> from your current access.\n\n"
+                f"<b>How to continue?</b>\n"
+                f"▶️ Watch another ad — get {DAILY_QUIZ_LIMIT} more quizzes free\n"
+                f"💎 Upgrade to Premium — unlimited quizzes\n"
+                f"🎁 Redeem invite points — get {REDEEM_PREMIUM_DAYS}-day premium free\n\n"
+                f"💡 Your points: <b>{user_points}/{REDEEM_POINTS_REQUIRED}</b>"
+            )
+
             keyboard = [
                 [InlineKeyboardButton("▶️ Watch Ad for More", callback_data="get_token")],
-                [InlineKeyboardButton("💎 Get Premium", callback_data="premium_plans")]
+                [InlineKeyboardButton("💎 Get Premium", callback_data="premium_plans")],
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            if can_redeem:
+                keyboard.insert(1, [InlineKeyboardButton(f"🎁 Redeem {REDEEM_PREMIUM_DAYS}-Day Premium ({REDEEM_POINTS_REQUIRED} pts)", callback_data="redeem_points")])
+            else:
+                keyboard.append([InlineKeyboardButton(f"👥 Invite Friends & Earn Points ({user_points}/{REDEEM_POINTS_REQUIRED})", callback_data="show_invite")])
+
             await update.message.reply_text(
-                f"⚠️ <b>Quiz limit reached!</b>\n\nYou've used all <b>{quiz_limit} quizzes</b> from your last ad.\n\nWatch another ad with /token to get {DAILY_QUIZ_LIMIT} more quizzes, or upgrade to premium for unlimited access!",
+                limit_msg,
                 parse_mode='HTML',
-                reply_markup=reply_markup
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
     
@@ -1341,17 +1606,98 @@ async def my_plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    
+
     if query.data == "premium_plans":
         await plan_command(update, context)
+
     elif query.data == "my_plan":
-        # Use the message from the callback query instead of update.message
         if hasattr(update, 'message'):
             await my_plan_command(update, context)
         else:
-            # Create a fake update with message for callback context
             fake_update = Update(update.update_id, message=query.message)
             await my_plan_command(fake_update, context)
+
+    elif query.data == "get_token":
+        # Trigger the ad/token flow inline
+        fake_update = Update(update.update_id, message=query.message)
+        # We need the real effective_user from the callback
+        # Build a minimal context-aware approach: just guide user to /token
+        await query.edit_message_text(
+            "▶️ <b>Get More Quiz Access</b>\n\n"
+            "Tap the button below or type /token to watch a short ad and unlock more quizzes!",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("▶️ Watch Ad Now", callback_data="open_token")],
+                [InlineKeyboardButton("💎 Get Premium", callback_data="premium_plans")]
+            ])
+        )
+
+    elif query.data == "open_token":
+        # Actually run token_command for this user
+        user_id = query.from_user.id
+        param = generate_random_param()
+        temp_params[user_id] = param
+        webapp_base = (
+            os.getenv('WEBAPP_URL') or
+            os.getenv('RENDER_EXTERNAL_URL') or
+            f"http://localhost:{os.environ.get('PORT', 8000)}"
+        )
+        webapp_url = f"{webapp_base}/webapp?user_id={user_id}&param={param}"
+        keyboard = [[InlineKeyboardButton("▶️ Watch Ad & Get Access", web_app=WebAppInfo(url=webapp_url))]]
+        sent = await query.message.reply_text(
+            "🎬 <b>Watch a short ad to unlock more quizzes!</b>\n\n"
+            "👇 Tap below to watch the ad, then claim your reward.",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        TOKEN_MESSAGES[user_id] = (query.message.chat_id, sent.message_id)
+
+    elif query.data == "redeem_points":
+        user_id = query.from_user.id
+        if await is_premium(user_id):
+            await query.edit_message_text(
+                "🌟 You already have an active premium plan!\nUse /myplan to check details.",
+                parse_mode='Markdown'
+            )
+            return
+        success, msg = await redeem_points_for_premium(user_id)
+        keyboard = [[InlineKeyboardButton("📋 View My Plan", callback_data="my_plan")]] if success else \
+                   [[InlineKeyboardButton("👥 Invite Friends", callback_data="show_invite"),
+                     InlineKeyboardButton("💎 Buy Premium", callback_data="premium_plans")]]
+        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif query.data == "show_invite":
+        user_id = query.from_user.id
+        points = await get_user_points(user_id)
+        bot_username = (await context.bot.get_me()).username
+        invite_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+        needed = max(0, REDEEM_POINTS_REQUIRED - points)
+        progress_filled = min(points, REDEEM_POINTS_REQUIRED)
+        progress_bar = "🟢" * progress_filled + "⚪" * (REDEEM_POINTS_REQUIRED - progress_filled)
+
+        msg = (
+            f"👥 *Your Invite Dashboard*\n\n"
+            f"🔗 *Your invite link:*\n`{invite_link}`\n\n"
+            f"📊 *Progress:*\n{progress_bar}\n"
+            f"💎 `{points}/{REDEEM_POINTS_REQUIRED}` points\n\n"
+            f"• Each new user = *+{INVITE_POINTS} points*\n"
+            f"• {REDEEM_POINTS_REQUIRED} points = *{REDEEM_PREMIUM_DAYS}-Day Premium FREE* 🎁\n"
+        )
+
+        if points >= REDEEM_POINTS_REQUIRED:
+            msg += "\n🎉 *Ready to redeem!*"
+            keyboard = [
+                [InlineKeyboardButton("🎁 Redeem Premium Now!", callback_data="redeem_points")],
+                [InlineKeyboardButton("📤 Share Link", url=f"https://t.me/share/url?url={invite_link}&text=Join+this+quiz+bot!")]
+            ]
+        else:
+            msg += f"\n📌 Invite *{needed} more friend(s)* to unlock free premium!"
+            keyboard = [
+                [InlineKeyboardButton("📤 Share Invite Link", url=f"https://t.me/share/url?url={invite_link}&text=Join+this+quiz+bot!")],
+                [InlineKeyboardButton("💎 Buy Premium Instead", callback_data="premium_plans")]
+            ]
+
+        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 # Optimized token validation with caching
 async def has_valid_token(user_id):
@@ -1462,7 +1808,8 @@ async def main_async() -> None:
         await asyncio.gather(
             create_ttl_index(),
             create_sudo_index(),
-            create_premium_index()
+            create_premium_index(),
+            create_invite_index()
         )
     
     # Get token from environment
@@ -1484,6 +1831,9 @@ async def main_async() -> None:
     application.add_handler(CommandHandler("refresh", refresh_command))
     application.add_handler(CommandHandler("plan", plan_command))
     application.add_handler(CommandHandler("myplan", my_plan_command))
+    application.add_handler(CommandHandler("invite", invite_command))
+    application.add_handler(CommandHandler("points", points_command))
+    application.add_handler(CommandHandler("redeem", redeem_command))
     application.add_handler(MessageHandler(filters.Document.TEXT, handle_document_wrapper))
     
     # Add broadcast commands
