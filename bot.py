@@ -353,17 +353,30 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Store message info for deletion after reward
     TOKEN_MESSAGES[user_id] = (update.effective_chat.id, sent.message_id)
 
-# Refresh command — clears token cache for current user
+# Refresh command — wipes all user data from DB and cache
 async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
+
+    # Clear all caches
     TOKEN_CACHE.pop(user_id, None)
     PREMIUM_CACHE.pop(user_id, None)
     SUDO_CACHE.pop(user_id, None)
-    has_token = await has_valid_token(user_id)
-    if has_token:
-        await update.message.reply_text("✅ Cache refreshed! You have active access.", parse_mode='Markdown')
-    else:
-        await update.message.reply_text("🔄 Cache refreshed! No active access found.\nUse /token to watch an ad.", parse_mode='Markdown')
+    temp_params.pop(user_id, None)
+    TOKEN_MESSAGES.pop(user_id, None)
+    pending_tokens.pop(user_id, None)
+
+    # Delete from DB
+    if DB is not None:
+        try:
+            await DB.tokens.delete_one({"user_id": user_id})
+            await DB.users.delete_one({"user_id": user_id})
+        except Exception as e:
+            logger.error(f"Refresh DB error: {e}")
+
+    await update.message.reply_text(
+        "🔄 <b>Reset Complete!</b>\n\nAll your data has been cleared. Use /token to get access again.",
+        parse_mode='HTML'
+    )
 
 # Token verification helper
 async def check_access(update: Update, context: ContextTypes.DEFAULT_TYPE, handler):
