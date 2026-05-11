@@ -81,6 +81,12 @@ WAITING_QUIZ_TITLE = {}
 # { approval_id: { chat_id, quiz_doc, owner_id, joined: set(), message_id, expires_at } }
 PENDING_GROUP_QUIZ = {}
 
+# Quiz edit states
+# WAITING_QUIZ_RENAME  { user_id: { quiz_id, message_id, chat_id } }
+WAITING_QUIZ_RENAME = {}
+# WAITING_QUIZ_ADD_Q   { user_id: { quiz_id, message_id, chat_id } }
+WAITING_QUIZ_ADD_Q = {}
+
 # Pending token rewards from webapp (Flask -> async bot bridge)
 pending_tokens = {}
 
@@ -643,38 +649,23 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("❌ This command is restricted to admins only.")
         return
 
-    # Clear all in-memory caches completely
-    TOKEN_CACHE.clear()
-    PREMIUM_CACHE.clear()
-    SUDO_CACHE.clear()
-    temp_params.clear()
-    TOKEN_MESSAGES.clear()
-    pending_tokens.clear()
-
-    # Delete ALL users data from DB
-    deleted = {}
-    if DB is not None:
-        try:
-            r1 = await DB.tokens.delete_many({})
-            r2 = await DB.users.delete_many({})
-            r3 = await DB.invite_points.delete_many({})
-            deleted = {
-                "tokens": r1.deleted_count,
-                "users": r2.deleted_count,
-                "invite_points": r3.deleted_count,
-            }
-        except Exception as e:
-            logger.error(f"Refresh DB error: {e}")
-
+    # Ask for confirmation before wiping all data
     await update.message.reply_text(
-        "🔄 <b>Full Reset Complete!</b>\n\n"
-        "<b>All users data cleared:</b>\n"
-        f"• ✅ Tokens: <code>{deleted.get('tokens', 0)}</code> records\n"
-        f"• ✅ Users: <code>{deleted.get('users', 0)}</code> records\n"
-        f"• ✅ Invite points: <code>{deleted.get('invite_points', 0)}</code> records\n"
-        "• ✅ All in-memory caches\n\n"
-        "Everyone will need to /token again.",
-        parse_mode='HTML'
+        "⚠️ <b>Full Reset Confirmation</b>\n\n"
+        "This will permanently delete:\n"
+        "• All user tokens\n"
+        "• All user records\n"
+        "• All invite points\n"
+        "• All in-memory caches\n\n"
+        "<b>Everyone will need to /token again.</b>\n\n"
+        "Are you sure?",
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Yes, Reset Everything", callback_data="confirm_refresh"),
+                InlineKeyboardButton("❌ Cancel",               callback_data="cancel_refresh"),
+            ]
+        ])
     )
 
 # Token verification helper
@@ -1539,15 +1530,108 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
                 [InlineKeyboardButton("📚 My Quizzes", callback_data="back_myquiz")]
             ]
             await update.message.reply_text(
-                f"✅ Quiz Save Ho Gayi!\n\n"
+                f"✅ Quiz saved!\n\n"
                 f"📝 Title: {title}\n"
                 f"❓ Questions: {len(questions)}\n"
-                f"⏱ Time per question: {open_period} sec\n\n"
-                "Aap /myquiz se apni quizzes dekh sakte hain.",
+                f"⏱ Time per question: {open_period}s\n\n"
+                "View your quizzes with /myquiz.",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
             await update.message.reply_text("An error occurred while saving. Please try again.")
+        return
+
+    # Check if user is renaming a quiz
+    if user_id in WAITING_QUIZ_RENAME and update.message and update.message.text:
+        new_title = update.message.text.strip()
+        if not new_title:
+            await update.message.reply_text("Title cannot be empty. Please send a valid title:")
+            return
+        data = WAITING_QUIZ_RENAME.pop(user_id)
+        quiz_id = data["quiz_id"]
+        result = await DB.saved_quizzes.update_one(
+            {"quiz_id": quiz_id, "user_id": user_id},
+            {"$set": {"title": new_title}}
+        )
+        if result.modified_count:
+            await update.message.reply_text(f"✅ Quiz renamed to *{new_title}*!", parse_mode="Markdown")
+        else:
+            await update.message.reply_text("⚠️ Could not rename. Quiz not found.")
+            return
+        quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id, "user_id": user_id})
+        try:
+            await context.bot.edit_message_reply_markup(
+                chat_id=data["chat_id"], message_id=data["message_id"], reply_markup=None
+            )
+        except Exception:
+            pass
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✏️ Back to Edit Menu", callback_data="editq_" + quiz_id)]
+        ])
+        await update.message.reply_text(
+            f"📋 *{new_title}*\n❓ {quiz_doc['total']} questions\n⏱ {quiz_doc.get('open_period',10)}s per question",
+            parse_mode="Markdown", reply_markup=keyboard
+        )
+        return
+
+    # Check if user is adding a question to a quiz
+    if user_id in WAITING_QUIZ_ADD_Q and update.message and update.message.text:
+        data = WAITING_QUIZ_ADD_Q.pop(user_id)
+        quiz_id = data["quiz_id"]
+        raw = update.message.text.strip()
+        lines = [l.strip() for l in raw.splitlines() if l.strip()]
+        # Parse: first line = question, then A) B) C) D), then Answer: X, optional Explanation:
+        try:
+            question_text = lines[0]
+            opts = []
+            answer_idx = None
+            explanation = ""
+            for line in lines[1:]:
+                if line.upper().startswith("ANSWER:"):
+                    letter = line.split(":", 1)[1].strip().upper()
+                    answer_idx = {"A": 0, "B": 1, "C": 2, "D": 3}.get(letter)
+                elif line.upper().startswith("EXPLANATION:"):
+                    explanation = line.split(":", 1)[1].strip()
+                elif len(line) >= 3 and line[1] in ")." and line[0].upper() in "ABCD":
+                    opts.append(line[2:].strip())
+            if len(opts) < 2:
+                raise ValueError("Need at least 2 options")
+            if answer_idx is None:
+                raise ValueError("Answer not found")
+            if answer_idx >= len(opts):
+                raise ValueError("Answer index out of range")
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ Could not parse question: {e}\n\n"
+                "Please use the format:\n"
+                "`Question text\nA) ...\nB) ...\nC) ...\nD) ...\nAnswer: B\nExplanation: optional`",
+                parse_mode="Markdown"
+            )
+            WAITING_QUIZ_ADD_Q[user_id] = data  # keep waiting
+            return
+        new_q = {
+            "question": question_text,
+            "options": [o[:100] for o in opts],
+            "correct_option_id": answer_idx,
+            "explanation": explanation
+        }
+        quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id, "user_id": user_id})
+        if not quiz_doc:
+            await update.message.reply_text("⚠️ Quiz not found.")
+            return
+        questions = quiz_doc.get("questions", [])
+        questions.append(new_q)
+        await DB.saved_quizzes.update_one(
+            {"quiz_id": quiz_id, "user_id": user_id},
+            {"$set": {"questions": questions, "total": len(questions)}}
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✏️ Back to Edit Menu", callback_data="editq_" + quiz_id)]
+        ])
+        await update.message.reply_text(
+            f"✅ Question added! Quiz now has *{len(questions)}* questions.",
+            parse_mode="Markdown", reply_markup=keyboard
+        )
         return
 
     if user_id not in BROADCAST_STATE or BROADCAST_STATE[user_id]['state'] != 'waiting_message':
@@ -1909,22 +1993,31 @@ async def handle_inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = query.from_user.id
     search = query.query.strip()
 
-    # Get user quizzes
-    quizzes = await get_user_quizzes(user_id)
+    # Strip "quiz_" prefix (comes from switch_inline_query="quiz_<id>")
+    clean_search = ""
+    if search:
+        clean_search = search[5:] if search.lower().startswith("quiz_") else search
+
+    # If searching by quiz_id — look up ANY quiz by that ID (not just owned ones)
+    if clean_search:
+        try:
+            direct = await DB.saved_quizzes.find_one({"quiz_id": clean_search})
+        except Exception:
+            direct = None
+        if direct:
+            # Found a specific quiz by ID — show just that one
+            quizzes = [direct]
+        else:
+            # Title search — only in user's own quizzes
+            quizzes = await get_user_quizzes(user_id)
+            quizzes = [q for q in quizzes if clean_search.lower() in q["title"].lower()]
+    else:
+        # No search — show user's own quizzes
+        quizzes = await get_user_quizzes(user_id)
+
     if not quizzes:
         await query.answer([], switch_pm_text="Create a quiz first with /createquiz!", switch_pm_parameter="start")
         return
-
-    # Filter: match by quiz_id (exact) OR title (partial, case-insensitive)
-    if search:
-        # Strip "quiz_" prefix if it came from switch_inline_query="quiz_<id>"
-        clean_search = search[5:] if search.lower().startswith("quiz_") else search
-        filtered = []
-        for q in quizzes:
-            qid = str(q.get("quiz_id", str(q["_id"])))
-            if qid == clean_search or clean_search.lower() in q["title"].lower():
-                filtered.append(q)
-        quizzes = filtered
 
     results = []
     bot_username = (await context.bot.get_me()).username
@@ -2049,6 +2142,54 @@ async def get_user_quizzes(user_id: int) -> list:
         logger.error(f"get_user_quizzes error: {e}")
         return []
 
+
+
+# ─── QUIZ EDITOR HELPERS ──────────────────────────────────────────────────────
+
+async def show_edit_menu(query, quiz_doc: dict):
+    """Render the quiz edit menu via a CallbackQuery."""
+    quiz_id = quiz_doc["quiz_id"]
+    title   = quiz_doc["title"]
+    total   = quiz_doc["total"]
+    period  = quiz_doc.get("open_period", 10)
+    text = (
+        f"✏️ *Edit Quiz*\n\n"
+        f"📋 *Title:* {title}\n"
+        f"❓ *Questions:* {total}\n"
+        f"⏱ *Time per question:* {period}s\n\n"
+        f"Choose what to edit:"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📝 Rename Quiz",             callback_data="eqname_" + quiz_id)],
+        [InlineKeyboardButton("⏱ Change Time per Question", callback_data="eqtime_" + quiz_id)],
+        [InlineKeyboardButton("📋 View / Remove Questions", callback_data="eqqs_" + quiz_id + "_0")],
+        [InlineKeyboardButton("➕ Add a Question",          callback_data="eqadd_" + quiz_id)],
+        [InlineKeyboardButton("🔙 Back",                    callback_data="startq_" + quiz_id)],
+    ])
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+def _questions_page_keyboard(quiz_id: str, questions: list, page: int):
+    """Build inline keyboard for question list page (5 per page)."""
+    PAGE_SIZE = 5
+    start = page * PAGE_SIZE
+    end   = min(start + PAGE_SIZE, len(questions))
+    rows  = []
+    for i in range(start, end):
+        q_short = questions[i]["question"][:38].replace("\n", " ")
+        rows.append([
+            InlineKeyboardButton(f"Q{i+1}: {q_short}", callback_data=f"eqview_{quiz_id}_{i}"),
+            InlineKeyboardButton("🗑 Remove", callback_data=f"eqrm_{quiz_id}_{i}"),
+        ])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"eqqs_{quiz_id}_{page-1}"))
+    if end < len(questions):
+        nav.append(InlineKeyboardButton("Next ▶️", callback_data=f"eqqs_{quiz_id}_{page+1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton("🔙 Back to Edit Menu", callback_data="editq_" + quiz_id)])
+    return InlineKeyboardMarkup(rows)
 
 async def countdown_and_start(bot, chat_id: int, session_id: str, countdown_msg_id: int = None):
     """Edit a message with 5→1 countdown then start the quiz"""
@@ -2546,10 +2687,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         keyboard = [
             [InlineKeyboardButton("▶️ Start Quiz Here", callback_data="runq_here_" + quiz_id)],
-            [InlineKeyboardButton("👥 Start in Group", callback_data="runq_group_" + quiz_id)],
-            [InlineKeyboardButton("📤 Share Quiz", switch_inline_query="quiz_" + quiz_id)],
-            [InlineKeyboardButton("🗑️ Delete Quiz", callback_data="delq_" + quiz_id)],
-            [InlineKeyboardButton("🔙 Back", callback_data="back_myquiz")]
+            [InlineKeyboardButton("👥 Start in Group",  callback_data="runq_group_" + quiz_id)],
+            [InlineKeyboardButton("📤 Share Quiz",      switch_inline_query="quiz_" + quiz_id)],
+            [InlineKeyboardButton("✏️ Edit Quiz",       callback_data="editq_" + quiz_id)],
+            [InlineKeyboardButton("🗑️ Delete Quiz",     callback_data="delq_" + quiz_id)],
+            [InlineKeyboardButton("🔙 Back",            callback_data="back_myquiz")]
         ]
         await query.edit_message_text(
             f"📋 *{quiz_doc['title']}*\n\n"
@@ -2714,6 +2856,188 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             pass
         await countdown_and_start(context.bot, chat_id, session_id, pending["message_id"])
 
+
+    # ── editq_: open edit menu ───────────────────────────────────────────────
+    elif query.data.startswith("editq_"):
+        quiz_id = query.data[6:]
+        user_id = query.from_user.id
+        quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id, "user_id": user_id})
+        if not quiz_doc:
+            await query.answer("Quiz not found!", show_alert=True)
+            return
+        await show_edit_menu(query, quiz_doc)
+
+    # ── eqname_: ask for new name ─────────────────────────────────────────────
+    elif query.data.startswith("eqname_"):
+        quiz_id = query.data[7:]
+        user_id = query.from_user.id
+        WAITING_QUIZ_RENAME[user_id] = {
+            "quiz_id": quiz_id,
+            "chat_id": query.message.chat_id,
+            "message_id": query.message.message_id,
+        }
+        await query.edit_message_text(
+            "📝 *Rename Quiz*\n\nSend the new title for this quiz:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ Cancel", callback_data="editq_" + quiz_id)]
+            ])
+        )
+
+    # ── eqtime_: pick new time per question ───────────────────────────────────
+    elif query.data.startswith("eqtime_"):
+        quiz_id = query.data[7:]
+        time_options = [5, 10, 15, 20, 30, 45, 60]
+        rows = []
+        row = []
+        for t in time_options:
+            row.append(InlineKeyboardButton(f"{t}s", callback_data=f"eqsettime_{quiz_id}_{t}"))
+            if len(row) == 4:
+                rows.append(row)
+                row = []
+        if row:
+            rows.append(row)
+        rows.append([InlineKeyboardButton("🔙 Back", callback_data="editq_" + quiz_id)])
+        await query.edit_message_text(
+            "⏱ *Change Time per Question*\n\nSelect new time limit:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(rows)
+        )
+
+    # ── eqsettime_: save new time ─────────────────────────────────────────────
+    elif query.data.startswith("eqsettime_"):
+        parts = query.data.split("_")
+        # format: eqsettime_<quiz_id>_<seconds>  (quiz_id may have underscores — last part is seconds)
+        seconds = int(parts[-1])
+        quiz_id = "_".join(parts[1:-1])
+        user_id = query.from_user.id
+        result = await DB.saved_quizzes.update_one(
+            {"quiz_id": quiz_id, "user_id": user_id},
+            {"$set": {"open_period": seconds}}
+        )
+        if result.modified_count:
+            await query.answer(f"✅ Time updated to {seconds}s!")
+        else:
+            await query.answer("Could not update time.", show_alert=True)
+            return
+        quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id, "user_id": user_id})
+        await show_edit_menu(query, quiz_doc)
+
+    # ── eqqs_: view/remove questions page ────────────────────────────────────
+    elif query.data.startswith("eqqs_"):
+        # format: eqqs_<quiz_id>_<page>
+        rest = query.data[5:]
+        page = int(rest.rsplit("_", 1)[-1])
+        quiz_id = rest.rsplit("_", 1)[0]
+        user_id = query.from_user.id
+        quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id, "user_id": user_id})
+        if not quiz_doc:
+            await query.answer("Quiz not found!", show_alert=True)
+            return
+        questions = quiz_doc.get("questions", [])
+        if not questions:
+            await query.answer("This quiz has no questions.", show_alert=True)
+            return
+        keyboard = _questions_page_keyboard(quiz_id, questions, page)
+        await query.edit_message_text(
+            f"📋 *Questions — {quiz_doc['title']}*\n"
+            f"Total: {len(questions)} questions\n\n"
+            f"Tap 🗑 Remove to delete a question.",
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+
+    # ── eqview_: show full question text ─────────────────────────────────────
+    elif query.data.startswith("eqview_"):
+        rest = query.data[7:]
+        q_idx = int(rest.rsplit("_", 1)[-1])
+        quiz_id = rest.rsplit("_", 1)[0]
+        user_id = query.from_user.id
+        quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id, "user_id": user_id})
+        if not quiz_doc:
+            await query.answer("Quiz not found!", show_alert=True)
+            return
+        questions = quiz_doc.get("questions", [])
+        if q_idx >= len(questions):
+            await query.answer("Question not found!", show_alert=True)
+            return
+        q = questions[q_idx]
+        labels = ["A", "B", "C", "D"]
+        opts_text = "\n".join(
+            f"{'✅' if i == q['correct_option_id'] else '▪️'} {labels[i]}) {opt}"
+            for i, opt in enumerate(q["options"])
+        )
+        expl = f"\n\n💡 *Explanation:* {q['explanation']}" if q.get("explanation") else ""
+        page = q_idx // 5
+        await query.edit_message_text(
+            f"*Q{q_idx+1}:* {q['question']}\n\n{opts_text}{expl}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🗑 Remove This Question", callback_data=f"eqrm_{quiz_id}_{q_idx}")],
+                [InlineKeyboardButton("🔙 Back to List", callback_data=f"eqqs_{quiz_id}_{page}")],
+            ])
+        )
+
+    # ── eqrm_: remove a question ──────────────────────────────────────────────
+    elif query.data.startswith("eqrm_"):
+        rest = query.data[5:]
+        q_idx = int(rest.rsplit("_", 1)[-1])
+        quiz_id = rest.rsplit("_", 1)[0]
+        user_id = query.from_user.id
+        quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id, "user_id": user_id})
+        if not quiz_doc:
+            await query.answer("Quiz not found!", show_alert=True)
+            return
+        questions = quiz_doc.get("questions", [])
+        if len(questions) <= 1:
+            await query.answer("❌ Cannot remove the last question!", show_alert=True)
+            return
+        if q_idx >= len(questions):
+            await query.answer("Question not found!", show_alert=True)
+            return
+        questions.pop(q_idx)
+        await DB.saved_quizzes.update_one(
+            {"quiz_id": quiz_id, "user_id": user_id},
+            {"$set": {"questions": questions, "total": len(questions)}}
+        )
+        await query.answer(f"✅ Question {q_idx+1} removed!")
+        # Show updated list
+        page = max(0, min(q_idx // 5, (len(questions)-1) // 5))
+        keyboard = _questions_page_keyboard(quiz_id, questions, page)
+        await query.edit_message_text(
+            f"📋 *Questions — {quiz_doc['title']}*\n"
+            f"Total: {len(questions)} questions\n\n"
+            f"Tap 🗑 Remove to delete a question.",
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+
+    # ── eqadd_: ask user to paste a new question ──────────────────────────────
+    elif query.data.startswith("eqadd_"):
+        quiz_id = query.data[6:]
+        user_id = query.from_user.id
+        WAITING_QUIZ_ADD_Q[user_id] = {
+            "quiz_id": quiz_id,
+            "chat_id": query.message.chat_id,
+            "message_id": query.message.message_id,
+        }
+        await query.edit_message_text(
+            "➕ *Add a Question*\n\n"
+            "Send the question in this format:\n\n"
+            "`Question text here\n"
+            "A) Option 1\n"
+            "B) Option 2\n"
+            "C) Option 3\n"
+            "D) Option 4\n"
+            "Answer: B\n"
+            "Explanation: optional explanation here`\n\n"
+            "_Answer must be A, B, C, or D._",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ Cancel", callback_data="editq_" + quiz_id)]
+            ])
+        )
+
     elif query.data.startswith("delq_"):
         quiz_id = query.data[5:]
         user_id = query.from_user.id
@@ -2722,6 +3046,49 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.edit_message_text("🗑️ Quiz deleted successfully!")
         except Exception as e:
             await query.edit_message_text("⚠️ An error occurred while deleting.")
+
+    elif query.data == "confirm_refresh":
+        user_id = query.from_user.id
+        if not await is_sudo(user_id):
+            await query.answer("❌ Admins only!", show_alert=True)
+            return
+        # Execute the full reset
+        TOKEN_CACHE.clear()
+        PREMIUM_CACHE.clear()
+        SUDO_CACHE.clear()
+        temp_params.clear()
+        TOKEN_MESSAGES.clear()
+        pending_tokens.clear()
+        deleted = {}
+        if DB is not None:
+            try:
+                r1 = await DB.tokens.delete_many({})
+                r2 = await DB.users.delete_many({})
+                r3 = await DB.invite_points.delete_many({})
+                deleted = {
+                    "tokens": r1.deleted_count,
+                    "users": r2.deleted_count,
+                    "invite_points": r3.deleted_count,
+                }
+            except Exception as e:
+                logger.error(f"Refresh DB error: {e}")
+        await query.edit_message_text(
+            "🔄 <b>Full Reset Complete!</b>\n\n"
+            "<b>All data cleared:</b>\n"
+            f"• ✅ Tokens: <code>{deleted.get('tokens', 0)}</code> records\n"
+            f"• ✅ Users: <code>{deleted.get('users', 0)}</code> records\n"
+            f"• ✅ Invite points: <code>{deleted.get('invite_points', 0)}</code> records\n"
+            "• ✅ All in-memory caches\n\n"
+            "Everyone will need to /token again.",
+            parse_mode='HTML'
+        )
+
+    elif query.data == "cancel_refresh":
+        user_id = query.from_user.id
+        if not await is_sudo(user_id):
+            await query.answer("❌ Admins only!", show_alert=True)
+            return
+        await query.edit_message_text("✅ Reset cancelled. No data was deleted.")
 
     elif query.data == "back_myquiz":
         user_id = query.from_user.id
