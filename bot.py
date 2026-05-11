@@ -47,7 +47,7 @@ SESSION = None  # Global aiohttp session
 AD_API = os.getenv('AD_API', '446b3a3f0039a2826f1483f22e9080963974ad3b')
 WEBSITE_URL = os.getenv('WEBSITE_URL', 'upshrink.com')
 YOUTUBE_TUTORIAL = "https://youtu.be/WeqpaV6VnO4?si=Y0pDondqe-nmIuht"
-GITHUB_REPO = "Admin ko contact karo"
+GITHUB_REPO = "Contact the admin"
 PREMIUM_CONTACT = "@rahul_g8"  # Premium contact
 
 # Quiz limit configuration
@@ -560,7 +560,7 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Block during active quiz in this chat
     if await is_quiz_running(update.effective_chat.id):
         await update.message.reply_text(
-            "⏳ Quiz chal rahi hai! Pehle /stopquiz se rok do.",
+            "⏳ A quiz is already running! Use /stopquiz to stop it first.",
             parse_mode='Markdown'
         )
         return
@@ -698,7 +698,7 @@ async def stopquiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     result = get_active_session_for_chat(chat_id)
     if not result:
-        await update.message.reply_text("⚠️ Is chat mein koi quiz nahi chal rahi abhi.")
+        await update.message.reply_text("⚠️ No quiz is currently running in this chat.")
         return
 
     session_id, session = result
@@ -724,7 +724,7 @@ async def stopquiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if not allowed:
         await update.message.reply_text(
-            "🚫 Sirf quiz start karne wala ya group admin hi quiz rok sakta hai."
+            "🚫 Only the quiz owner or a group admin can stop the quiz."
         )
         return
 
@@ -749,9 +749,9 @@ async def check_access(update: Update, context: ContextTypes.DEFAULT_TYPE, handl
     # Block all commands while a quiz is active in this chat
     if await is_quiz_running(chat_id):
         await update.message.reply_text(
-            "⏳ *Quiz chal rahi hai!*\n\n"
-            "Quiz khatam hone tak doosre commands nahi chalenge.\n"
-            "Quiz rok ne ke liye /stopquiz use karein.",
+            "⏳ *A quiz is in progress!*\n\n"
+            "Other commands are disabled until the quiz ends.\n"
+            "Use /stopquiz to stop the quiz.",
             parse_mode='Markdown'
         )
         return
@@ -817,17 +817,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                             "open_period": quiz_doc.get("open_period", 10)
                         }
                         msg = await update.message.reply_text(
-                            "📋 *" + quiz_doc["title"] + "*\n❓ " + str(quiz_doc["total"]) + " questions\n\nShuru ho rahi hai... 🎯",
+                            "📋 *" + quiz_doc["title"] + "*\n❓ " + str(quiz_doc["total"]) + " questions\n\nStarting... 🎯",
                             parse_mode='Markdown'
                         )
                         await countdown_and_start(context.bot, chat_id, session_id, msg.message_id)
                     return
                 else:
-                    await update.message.reply_text("Quiz nahi mili. Shayad delete ho gayi.")
+                    await update.message.reply_text("Quiz not found. It may have been deleted.")
                     return
             except Exception as e:
                 logger.error(f"Quiz deep link error: {e}")
-                await update.message.reply_text("Quiz start karne mein error aaya.")
+                await update.message.reply_text("An error occurred while starting the quiz.")
                 return
 
         if arg.startswith("ref_"):
@@ -1315,7 +1315,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 ]
             ]
             await update.message.reply_text(
-                "💾 *Kya aap ye quiz save karna chahte hain?*\n\nSave karne ke baad aap ise group mein bhi run kar sakte hain!",
+                "💾 *Would you like to save this quiz?*\n\nOnce saved, you can run it in groups too!",
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
@@ -1528,7 +1528,7 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
     if user_id in WAITING_QUIZ_TITLE and update.message and update.message.text:
         title = update.message.text.strip()
         if not title:
-            await update.message.reply_text("Khaali title nahi chalta. Dobara likhein:")
+            await update.message.reply_text("Title cannot be empty. Please enter a title:")
             return
         data = WAITING_QUIZ_TITLE.pop(user_id)
         questions = data["questions"]
@@ -1547,7 +1547,7 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
-            await update.message.reply_text("Save karne mein error aaya. Dobara try karein.")
+            await update.message.reply_text("An error occurred while saving. Please try again.")
         return
 
     if user_id not in BROADCAST_STATE or BROADCAST_STATE[user_id]['state'] != 'waiting_message':
@@ -1912,7 +1912,7 @@ async def handle_inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Get user quizzes
     quizzes = await get_user_quizzes(user_id)
     if not quizzes:
-        await query.answer([], switch_pm_text="Pehle /createquiz se quiz banao!", switch_pm_parameter="start")
+        await query.answer([], switch_pm_text="Create a quiz first with /createquiz!", switch_pm_parameter="start")
         return
 
     # Filter: match by quiz_id (exact) OR title (partial, case-insensitive)
@@ -1940,7 +1940,7 @@ async def handle_inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE
                 input_message_content=InputTextMessageContent(
                     "📋 *" + q["title"] + "*\n" +
                     "❓ " + str(q["total"]) + " questions\n\n" +
-                    "Neeche buttons se quiz start karein! 👇",
+                    "Use the buttons below to start the quiz! 👇",
                     parse_mode='Markdown'
                 ),
                 reply_markup=InlineKeyboardMarkup([
@@ -1967,10 +1967,10 @@ async def startquiz_group_command(update: Update, context: ContextTypes.DEFAULT_
     try:
         quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id})
     except Exception:
-        await update.message.reply_text("Quiz nahi mili. Sahi ID use karein.")
+        await update.message.reply_text("Quiz not found. Please use a valid ID.")
         return
     if not quiz_doc:
-        await update.message.reply_text("Quiz nahi mili.")
+        await update.message.reply_text("Quiz not found.")
         return
 
     is_group = update.effective_chat.type in ("group", "supergroup")
@@ -1991,7 +1991,7 @@ async def startquiz_group_command(update: Update, context: ContextTypes.DEFAULT_
             "open_period": quiz_doc.get("open_period", 10)
         }
         msg = await update.message.reply_text(
-            f"📋 *{quiz_doc['title']}*\n❓ {quiz_doc['total']} questions\n\nShuru ho rahi hai... 🎯",
+            f"📋 *{quiz_doc['title']}*\n❓ {quiz_doc['total']} questions\n\nStarting... 🎯",
             parse_mode='Markdown'
         )
         await countdown_and_start(context.bot, chat_id, session_id, msg.message_id)
@@ -2056,7 +2056,7 @@ async def countdown_and_start(bot, chat_id: int, session_id: str, countdown_msg_
     for i in range(5, 0, -1):
         text = (
             f"🎯 *{title}*\n\n"
-            f"⏳ Quiz shuru ho rahi hai...\n\n"
+            f"⏳ Quiz is starting...\n\n"
             f"{'🔴' * i}{'⚪' * (5 - i)}  *{i}*"
         )
         try:
@@ -2074,7 +2074,7 @@ async def countdown_and_start(bot, chat_id: int, session_id: str, countdown_msg_
     try:
         await bot.edit_message_text(
             chat_id=chat_id, message_id=countdown_msg_id,
-            text=f"🚀 *{title}* — Shuru! 🎯", parse_mode='Markdown'
+            text=f"🚀 *{title}* — Let's go! 🎯", parse_mode='Markdown'
         )
     except Exception:
         pass
@@ -2101,10 +2101,10 @@ async def start_group_quiz_with_approval(bot, chat_id: int, quiz_doc: dict, owne
         text=(
             f"📋 *{quiz_doc['title']}*\n"
             f"❓ {quiz_doc['total']} questions\n\n"
-            f"Quiz shuru karne ke liye *kam se kam 2 players* chahiye!\n"
-            f"Neeche button dabao taiyaar hone ke liye 👇\n\n"
+            f"At least *2 players* are needed to start the quiz!\n"
+            f"Press the button below to join 👇\n\n"
             f"✅ Ready: 0 players\n"
-            f"⏰ 60 seconds mein auto-cancel ho jaayegi agar 2 log ready nahi hue."
+            f"⏰ Auto-cancels in 60 seconds if fewer than 2 players join."
         ),
         parse_mode='Markdown',
         reply_markup=keyboard
@@ -2129,7 +2129,7 @@ async def start_group_quiz_with_approval(bot, chat_id: int, quiz_doc: dict, owne
                 await bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=pending["message_id"],
-                    text="⏰ *Quiz cancelled!*\n\nKafi players ready nahi hue. Dobara try karein.",
+                    text="⏰ *Quiz cancelled!*\n\nNot enough players joined. Please try again.",
                     parse_mode='Markdown'
                 )
             except Exception:
@@ -2161,9 +2161,9 @@ async def send_quiz_question(bot, session_id: str):
                 sc = data["score"]
                 pct = int((sc / total_q) * 100)
                 leaderboard += medal + " " + name + " - " + str(sc) + "/" + str(total_q) + " (" + str(pct) + "%)\n"
-            result_text = "\U0001f3c1 *Quiz Khatam!*\n\n" + "\U0001f4cb *" + session["title"] + "*\n" + "\U0001f4ca Total Questions: " + str(total_q) + "\n\n" + "\U0001f3c6 *Leaderboard:*\n\n" + leaderboard
+            result_text = "\U0001f3c1 *Quiz Finished!*\n\n" + "\U0001f4cb *" + session["title"] + "*\n" + "\U0001f4ca Total Questions: " + str(total_q) + "\n\n" + "\U0001f3c6 *Leaderboard:*\n\n" + leaderboard
         else:
-            result_text = "\U0001f3c1 *Quiz Khatam!*\n\n" + "\U0001f4cb *" + session["title"] + "*\n" + "\U0001f4ca Total Questions: " + str(total_q) + "\n\nKisi ne bhi answer nahi kiya."
+            result_text = "\U0001f3c1 *Quiz Finished!*\n\n" + "\U0001f4cb *" + session["title"] + "*\n" + "\U0001f4ca Total Questions: " + str(total_q) + "\n\nNo one answered."
 
         # Share keyboard — only if we have a quiz_id
         share_markup = None
@@ -2362,16 +2362,16 @@ async def myquiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if await is_quiz_running(update.effective_chat.id):
         await update.message.reply_text(
-            "⏳ Quiz chal rahi hai! Pehle /stopquiz se rok do.",
+            "⏳ A quiz is already running! Use /stopquiz to stop it first.",
             parse_mode='Markdown'
         )
         return
     quizzes = await get_user_quizzes(user_id)
     if not quizzes:
-        await update.message.reply_text("📭 Aapke paas koi saved quiz nahi hai.\n\nPehle /createquiz se ek quiz banayein!", parse_mode='Markdown')
+        await update.message.reply_text("📭 You have no saved quizzes.\n\nCreate one with /createquiz!", parse_mode='Markdown')
         return
 
-    text = "📚 *Aapke Saved Quizzes:*\n\n"
+    text = "📚 *Your Saved Quizzes:*\n\n"
     keyboard = []
     for i, q in enumerate(quizzes[:10], 1):
         text += f"{i}. *{q['title']}* — {q['total']} questions\n"
@@ -2481,7 +2481,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif query.data == "save_quiz_yes":
         user_id = query.from_user.id
         if user_id not in PENDING_QUIZ_SAVE:
-            await query.edit_message_text("⚠️ Session expire ho gayi. Dobara file bhejein.")
+            await query.edit_message_text("⚠️ Session expired. Please send the file again.")
             return
         keyboard = [
             [
@@ -2512,7 +2512,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif query.data.startswith("qtime_"):
         user_id = query.from_user.id
         if user_id not in PENDING_QUIZ_SAVE:
-            await query.edit_message_text("⚠️ Session expire ho gayi. Dobara file bhejein.")
+            await query.edit_message_text("⚠️ Session expired. Please send the file again.")
             return
         time_sec = int(query.data.split("_")[1])
         data = PENDING_QUIZ_SAVE.pop(user_id)
@@ -2521,13 +2521,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         time_label = f"{time_sec} seconds" if time_sec < 60 else ("1 minute" if time_sec == 60 else f"{time_sec // 60} minutes")
         await query.edit_message_text(
             f"✅ Time set: *{time_label}* per question\n\n"
-            "✏️ *Ab quiz ka naam/title likhein:*",
+            "✏️ *Enter a name/title for your quiz:*",
             parse_mode='Markdown'
         )
 
     elif query.data == "save_quiz_no":
         PENDING_QUIZ_SAVE.pop(query.from_user.id, None)
-        await query.edit_message_text("👍 Theek hai! Quiz save nahi kiya gaya.")
+        await query.edit_message_text("👍 Alright! Quiz was not saved.")
 
     elif query.data == "close_menu":
         await query.message.delete()
@@ -2538,10 +2538,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id})
         except Exception:
-            await query.answer("Quiz nahi mila!", show_alert=True)
+            await query.answer("Quiz not found!", show_alert=True)
             return
         if not quiz_doc:
-            await query.answer("Quiz nahi mila!", show_alert=True)
+            await query.answer("Quiz not found!", show_alert=True)
             return
 
         keyboard = [
@@ -2555,7 +2555,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"📋 *{quiz_doc['title']}*\n\n"
             f"📊 Questions: {quiz_doc['total']}\n"
             f"📅 Created: {format_ist(quiz_doc['created_at'])} IST\n\n"
-            f"Kya karna chahte hain?",
+            f"What would you like to do?",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -2567,7 +2567,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id})
         except Exception:
-            await query.answer("Quiz nahi mila!", show_alert=True)
+            await query.answer("Quiz not found!", show_alert=True)
             return
         session_id = str(user_id) + "_" + quiz_id
         ACTIVE_QUIZ_SESSIONS[session_id] = {
@@ -2583,10 +2583,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "open_period": quiz_doc.get("open_period", 10)
         }
         await query.edit_message_text(
-            f"🚀 *{quiz_doc['title']}* shuru ho rahi hai!\n\n"
-            f"Total {quiz_doc['total']} questions. Shuru karte hain... 🎯\n\n"
-            f"⚠️ Quiz khatam hone tak doosre commands kaam nahi karenge.\n"
-            f"Beech mein rokna ho to /stopquiz likhein.",
+            f"🚀 *{quiz_doc['title']}* is starting!\n\n"
+            f"Total {quiz_doc['total']} questions. Here we go! 🎯\n\n"
+            f"⚠️ Other commands are disabled until the quiz ends.\n"
+            f"Use /stopquiz to stop anytime.",
             parse_mode='Markdown'
         )
         await asyncio.sleep(1)
@@ -2597,13 +2597,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         bot_username = (await context.bot.get_me()).username
         startgroup_link = "https://t.me/" + bot_username + "?startgroup=quiz_" + quiz_id
         keyboard = [
-            [InlineKeyboardButton("👥 Group mein Add Karein & Start Karein", url=startgroup_link)]
+            [InlineKeyboardButton("👥 Add to Group & Start Quiz", url=startgroup_link)]
         ]
         await query.answer()
         await query.message.reply_text(
-            "👥 *Group mein Quiz Start Karein*\n\n"
-            "Neeche button dabao — bot apne group mein add hoga aur quiz automatically shuru ho jaayegi!\n\n"
-            "Ya yeh link copy karke group admin ko bhejo:\n"
+            "👥 *Start Quiz in a Group*\n\n"
+            "Press the button below — the bot will be added to your group and the quiz will start automatically!\n\n"
+            "Or copy this link and send it to your group admin:\n"
             "`" + startgroup_link + "`",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -2617,13 +2617,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("Quiz session expired ya start ho gayi!", show_alert=True)
             return
         if datetime.utcnow() > pending["expires_at"]:
-            await query.answer("Time out ho gaya!", show_alert=True)
+            await query.answer("Timed out!", show_alert=True)
             return
         name = query.from_user.first_name or "Player"
         pending["joined"].add(user_id)
         pending["joined_names"][user_id] = name
         count = len(pending["joined"])
-        await query.answer(f"✅ Tum ready ho, {name}!")
+        await query.answer(f"✅ You're ready, {name}!")
         # Update the join message
         names_list = ", ".join(pending["joined_names"].values())
         keyboard = InlineKeyboardMarkup([
@@ -2634,10 +2634,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.edit_message_text(
                 f"📋 *{pending['quiz_doc']['title']}*\n"
                 f"❓ {pending['quiz_doc']['total']} questions\n\n"
-                "Quiz shuru karne ke liye *kam se kam 2 players* chahiye!\n"
-                "Neeche button dabao taiyaar hone ke liye 👇\n\n"
+                "At least *2 players* are needed to start the quiz!\n"
+                "Press the button below to join 👇\n\n"
                 f"✅ Ready: {count} players — {names_list}\n"
-                "⏰ Auto-cancel hogi agar 2 log ready nahi hue.",
+                "⏰ Auto-cancels if fewer than 2 players join.",
                 parse_mode='Markdown',
                 reply_markup=keyboard
             )
@@ -2678,14 +2678,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user_id = query.from_user.id
         pending = PENDING_GROUP_QUIZ.get(approval_id)
         if not pending:
-            await query.answer("Session expired ya quiz shuru ho gayi!", show_alert=True)
+            await query.answer("Session expired or the quiz has already started!", show_alert=True)
             return
         if user_id != pending["owner_id"]:
-            await query.answer("Sirf quiz start karne wala force start kar sakta hai!", show_alert=True)
+            await query.answer("Only the quiz owner can force start!", show_alert=True)
             return
         count = len(pending["joined"])
         if count < 1:
-            await query.answer("Koi bhi ready nahi hai abhi!", show_alert=True)
+            await query.answer("No one is ready yet!", show_alert=True)
             return
         PENDING_GROUP_QUIZ.pop(approval_id, None)
         quiz_doc = pending["quiz_doc"]
@@ -2719,17 +2719,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user_id = query.from_user.id
         try:
             await DB.saved_quizzes.delete_one({"quiz_id": quiz_id, "user_id": user_id})
-            await query.edit_message_text("🗑️ Quiz delete ho gaya!")
+            await query.edit_message_text("🗑️ Quiz deleted successfully!")
         except Exception as e:
-            await query.edit_message_text("⚠️ Delete karne mein error aaya.")
+            await query.edit_message_text("⚠️ An error occurred while deleting.")
 
     elif query.data == "back_myquiz":
         user_id = query.from_user.id
         quizzes = await get_user_quizzes(user_id)
         if not quizzes:
-            await query.edit_message_text("📭 Koi saved quiz nahi hai.")
+            await query.edit_message_text("📭 No saved quizzes found.")
             return
-        text = "📚 *Aapke Saved Quizzes:*\n\n"
+        text = "📚 *Your Saved Quizzes:*\n\n"
         keyboard = []
         for i, q in enumerate(quizzes[:10], 1):
             text += f"{i}. *{q['title']}* — {q['total']} questions\n"
