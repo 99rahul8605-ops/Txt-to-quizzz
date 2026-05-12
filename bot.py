@@ -50,6 +50,12 @@ YOUTUBE_TUTORIAL = "https://youtu.be/WeqpaV6VnO4?si=Y0pDondqe-nmIuht"
 GITHUB_REPO = "Contact the admin"
 PREMIUM_CONTACT = "@rahul_g8"  # Premium contact
 
+# Force-join channel config
+# Set REQUIRED_CHANNEL to your channel username (e.g. "@mychannel") or numeric ID
+# Set CHANNEL_LINK to the full invite/public URL shown in the join button
+REQUIRED_CHANNEL = os.getenv('REQUIRED_CHANNEL', '@mychannel')
+CHANNEL_LINK     = os.getenv('CHANNEL_LINK', 'https://t.me/mychannel')
+
 # Quiz limit configuration
 DAILY_QUIZ_LIMIT = int(os.getenv('DAILY_QUIZ_LIMIT', 20))  # Default is 20 quizzes/day
 
@@ -737,6 +743,16 @@ async def check_access(update: Update, context: ContextTypes.DEFAULT_TYPE, handl
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
+    # Force-join check — only in DMs
+    if update.effective_chat.type == "private":
+        if not await check_force_join(context.bot, user_id):
+            await update.message.reply_text(
+                "🔒 *You must join our channel to use this bot!*\n\n"
+                "Please join the channel below, then tap ✅ I Joined.",
+                parse_mode="Markdown",
+                reply_markup=force_join_markup()
+            )
+
     # Block all commands while a quiz is active in this chat
     if await is_quiz_running(chat_id):
         await update.message.reply_text(
@@ -757,6 +773,26 @@ async def check_access(update: Update, context: ContextTypes.DEFAULT_TYPE, handl
     )
 
 # Wrapper functions for access verification
+
+async def check_force_join(bot, user_id: int) -> bool:
+    """Return True if user is a member of REQUIRED_CHANNEL, False otherwise."""
+    if not REQUIRED_CHANNEL:
+        return True
+    try:
+        member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
+        return member.status not in ("left", "kicked", "banned")
+    except Exception:
+        # If we can't check (bot not in channel, private channel etc.) — allow through
+        return True
+
+
+def force_join_markup() -> InlineKeyboardMarkup:
+    """Keyboard with a Join button and a ✅ I Joined button."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK)],
+        [InlineKeyboardButton("✅ I Joined — Check Again", callback_data="check_joined")],
+    ])
+
 async def start_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Skip token check for the start command itself
     await start(update, context)
@@ -778,6 +814,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await record_user_interaction(update)
     user = update.effective_user
     user_id = user.id
+
+    # Force-join check — only in DMs
+    if update.effective_chat.type == "private":
+        if not await check_force_join(context.bot, user_id):
+            await update.message.reply_text(
+                "👋 *Welcome!*\n\n"
+                "To use this bot, you must first join our official channel.\n\n"
+                "📢 Join the channel below and then tap ✅ I Joined.",
+                parse_mode="Markdown",
+                reply_markup=force_join_markup()
+            )
+            return
 
     # ── Handle referral deep-link (/start ref_XXXXXXX) ──────────────────────
     if context.args:
@@ -874,13 +922,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_msg += "Let's make learning fun!"
 
     keyboard = [
+        [InlineKeyboardButton("📢 Join Our Channel", url=CHANNEL_LINK)],
         [
             InlineKeyboardButton("🎥 Watch Tutorial", url=YOUTUBE_TUTORIAL),
             InlineKeyboardButton("💎 Premium Plans", callback_data="premium_plans")
         ],
-        [
-            InlineKeyboardButton("👥 Invite & Earn Points", callback_data="show_invite")
-        ]
+        [InlineKeyboardButton("👥 Invite & Earn Points", callback_data="show_invite")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -2344,7 +2391,8 @@ async def send_quiz_question(bot, session_id: str):
             for i, opt in enumerate(options):
                 opt_clean = opt_prefix_re2.sub('', opt).strip()
                 options_text += option_labels[i] + ") " + opt_clean + "\n"
-            msg_text = "*📋 Question:*\n```\n" + question_text + "\n\n" + options_text.rstrip() + "\n```"
+            progress = f"❓ *Question {idx + 1}/{len(questions)}*"
+            msg_text = progress + "\n\n*📋 Question:*\n```\n" + question_text + "\n\n" + options_text.rstrip() + "\n```"
             await bot.send_message(chat_id=chat_id, text=msg_text, parse_mode='Markdown')
 
             poll_options = []
@@ -2354,7 +2402,7 @@ async def send_quiz_question(bot, session_id: str):
 
             sent = await bot.send_poll(
                 chat_id=chat_id,
-                question="⬆️ Read above question and answers correctly",
+                question=f"[{idx + 1}/{len(questions)}] ⬆️ Read the question above",
                 options=poll_options,
                 type='quiz',
                 correct_option_id=correct_id,
@@ -2367,7 +2415,7 @@ async def send_quiz_question(bot, session_id: str):
             safe_options = [opt[:100] for opt in options]
             poll_kwargs = {
                 "chat_id": chat_id,
-                "question": question_text,
+                "question": f"[{idx + 1}/{len(questions)}] " + question_text[:280],
                 "options": safe_options,
                 "type": 'quiz',
                 "correct_option_id": correct_id,
@@ -3046,6 +3094,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.edit_message_text("🗑️ Quiz deleted successfully!")
         except Exception as e:
             await query.edit_message_text("⚠️ An error occurred while deleting.")
+
+    elif query.data == "check_joined":
+        user_id = query.from_user.id
+        if await check_force_join(context.bot, user_id):
+            await query.edit_message_text(
+                "✅ *You're in! Welcome!*\n\nSend /start to begin.",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.answer(
+                "❌ You haven't joined yet! Please join the channel first.",
+                show_alert=True
+            )
 
     elif query.data == "confirm_refresh":
         user_id = query.from_user.id
