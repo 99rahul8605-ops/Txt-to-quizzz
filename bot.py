@@ -51,9 +51,9 @@ GITHUB_REPO = "Contact the admin"
 PREMIUM_CONTACT = "@rahul_g8"  # Premium contact
 
 # Force-join channel config
-# Set REQUIRED_CHANNEL to your channel username (e.g. "@mychannel") or numeric ID
-# Set CHANNEL_LINK to the full invite/public URL shown in the join button
-REQUIRED_CHANNEL = os.getenv('REQUIRED_CHANNEL', '@mychannel')
+# REQUIRED_CHANNEL: numeric channel ID (e.g. -1001234567890) — get it via @userinfobot
+# CHANNEL_LINK: full public/invite URL shown on the Join button
+REQUIRED_CHANNEL = int(os.getenv('REQUIRED_CHANNEL', '-1001234567890'))
 CHANNEL_LINK     = os.getenv('CHANNEL_LINK', 'https://t.me/mychannel')
 
 # Quiz limit configuration
