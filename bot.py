@@ -46,7 +46,7 @@ SESSION = None  # Global aiohttp session
 # API Configuration
 AD_API = os.getenv('AD_API', '446b3a3f0039a2826f1483f22e9080963974ad3b')
 WEBSITE_URL = os.getenv('WEBSITE_URL', 'upshrink.com')
-YOUTUBE_TUTORIAL = "https://youtu.be/WeqpaV6VnO4?si=Y0pDondqe-nmIuht"
+YOUTUBE_TUTORIAL = "https://youtu.be/2Yda3thEXag?si=qXE9Tl-j4TzIZmQk"
 GITHUB_REPO = "Contact the admin"
 PREMIUM_CONTACT = "@rahul_g8"  # Premium contact
 
