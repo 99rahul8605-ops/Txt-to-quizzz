@@ -130,6 +130,40 @@ def serve_schedule_picker():
     """Serve the schedule date/time picker Mini App"""
     return send_from_directory('.', 'schedule_picker.html')
 
+@app.route('/save_schedule', methods=['POST'])
+def save_schedule_route():
+    """Called by the schedule picker Mini App via fetch() to save a schedule."""
+    try:
+        data    = flask_request.get_json(force=True)
+        user_id = int(data.get("user_id", 0))
+        year    = int(data.get("year", 0))
+        month   = int(data.get("month", 0))
+        day     = int(data.get("day", 0))
+        hour    = int(data.get("hour", 0))
+        minute  = int(data.get("minute", 0))
+
+        if not user_id:
+            return jsonify({"ok": False, "error": "Missing user_id"}), 400
+
+        state = WAITING_SCHEDULE_INPUT.get(user_id)
+        if not state or state.get("step") != "awaiting_webapp":
+            return jsonify({"ok": False, "error": "No active schedule session"}), 400
+
+        # Run async save in the bot's event loop
+        if ASYNC_LOOP[0] is None:
+            return jsonify({"ok": False, "error": "Bot loop not ready"}), 503
+
+        future = asyncio.run_coroutine_threadsafe(
+            _async_save_schedule(user_id, state, year, month, day, hour, minute),
+            ASYNC_LOOP[0]
+        )
+        result = future.result(timeout=10)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"save_schedule_route error: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 async def _db_get_temp_param(user_id):
     """Async helper: get temp param from DB"""
     try:
@@ -3957,6 +3991,69 @@ async def _handle_schedule_text_input(update: Update, context: ContextTypes.DEFA
         return True
 
     return False
+
+
+async def _async_save_schedule(user_id, state, year, month, day, hour, minute):
+    """Async coroutine: validates, saves schedule to DB, sends confirmation to user."""
+    import uuid as _uuid
+
+    naive_ist  = datetime(year, month, day, hour, minute)
+    run_at_utc = naive_ist - timedelta(hours=5, minutes=30)
+
+    if run_at_utc <= datetime.utcnow() + timedelta(minutes=2):
+        return {"ok": False, "error": "Time is in the past or too soon (need 2+ min)"}
+
+    schedule_id  = _uuid.uuid4().hex[:12]
+    schedule_doc = {
+        "schedule_id": schedule_id,
+        "quiz_id":     state["quiz_id"],
+        "chat_id":     state["chat_id"],
+        "chat_title":  state.get("chat_title", ""),
+        "owner_id":    user_id,
+        "run_at":      run_at_utc,
+        "title":       state["quiz_title"],
+        "fired":       False,
+        "created_at":  datetime.utcnow(),
+    }
+
+    if DB is not None:
+        await DB.scheduled_quizzes.insert_one(schedule_doc)
+
+    SCHEDULED_QUIZZES[schedule_id] = {
+        "quiz_id":  state["quiz_id"],
+        "chat_id":  state["chat_id"],
+        "owner_id": user_id,
+        "run_at":   run_at_utc,
+        "title":    state["quiz_title"],
+        "fired":    False,
+    }
+
+    WAITING_SCHEDULE_INPUT.pop(user_id, None)
+
+    # Send confirmation message to user via bot
+    bot = application_ref[0]
+    if bot:
+        run_ist_str = format_ist(run_at_utc)
+        safe_quiz   = html.escape(state["quiz_title"])
+        safe_chat   = html.escape(state.get("chat_title", str(state["chat_id"])))
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text=(
+                    "\u2705 *Quiz Scheduled Successfully!*\n\n"
+                    f"\U0001f4cb Quiz: *{safe_quiz}*\n"
+                    f"\U0001f4cd Group: *{safe_chat}*\n"
+                    f"\u23f0 Time: *{run_ist_str} IST*\n\n"
+                    f"\U0001f194 Schedule ID: `{schedule_id}`\n\n"
+                    "Use /myschedules to view or cancel your schedules."
+                ),
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+        except Exception as e:
+            logger.error(f"_async_save_schedule send_message error: {e}")
+
+    return {"ok": True, "schedule_id": schedule_id}
 
 
 async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE):

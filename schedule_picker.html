@@ -7,120 +7,59 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: var(--tg-theme-bg-color, #ffffff);
-    color: var(--tg-theme-text-color, #000000);
+    background: var(--tg-theme-bg-color, #fff);
+    color: var(--tg-theme-text-color, #000);
     min-height: 100vh;
     padding: 16px;
-    padding-bottom: 100px;
+    padding-bottom: 20px;
   }
-
   .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
   .header h2 { font-size: 18px; font-weight: 600; }
   .header .bell { font-size: 22px; opacity: 0.5; }
 
   /* ── CALENDAR ── */
-  .calendar {
-    background: var(--tg-theme-secondary-bg-color, #f2f2f7);
-    border-radius: 16px; padding: 16px; margin-bottom: 16px;
-  }
-  .cal-nav {
-    display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
-  }
+  .calendar { background: var(--tg-theme-secondary-bg-color, #f2f2f7); border-radius: 16px; padding: 16px; margin-bottom: 16px; }
+  .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
   .cal-nav .month-year { font-size: 16px; font-weight: 600; }
-  .cal-nav button {
-    background: none; border: none; cursor: pointer;
-    font-size: 24px; color: var(--tg-theme-button-color, #2481cc);
-    padding: 2px 14px; border-radius: 8px; line-height: 1;
-  }
+  .cal-nav button { background: none; border: none; cursor: pointer; font-size: 24px; color: var(--tg-theme-button-color, #2481cc); padding: 2px 14px; border-radius: 8px; line-height: 1; }
   .cal-nav button:active { background: rgba(0,0,0,0.08); }
-
   .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
-  .cal-grid .dow {
-    text-align: center; font-size: 11px; font-weight: 600;
-    color: var(--tg-theme-hint-color, #999); padding: 4px 0 8px; text-transform: uppercase;
-  }
-  .cal-grid .day {
-    aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-    font-size: 15px; border-radius: 50%; cursor: pointer; user-select: none;
-  }
+  .cal-grid .dow { text-align: center; font-size: 11px; font-weight: 600; color: var(--tg-theme-hint-color, #999); padding: 4px 0 8px; text-transform: uppercase; }
+  .cal-grid .day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 15px; border-radius: 50%; cursor: pointer; user-select: none; }
   .cal-grid .day:active { opacity: 0.6; }
   .cal-grid .day.other-month { color: var(--tg-theme-hint-color, #ccc); pointer-events: none; }
   .cal-grid .day.today { color: var(--tg-theme-button-color, #2481cc); font-weight: 700; }
   .cal-grid .day.selected { background: var(--tg-theme-button-color, #2481cc); color: #fff !important; font-weight: 700; }
   .cal-grid .day.past { color: var(--tg-theme-hint-color, #ccc); pointer-events: none; }
 
-  /* ── TIME PICKER ── */
-  .time-section {
-    background: var(--tg-theme-secondary-bg-color, #f2f2f7);
-    border-radius: 16px; padding: 18px 20px; margin-bottom: 16px;
-  }
-  .time-label {
-    font-size: 13px; font-weight: 600; color: var(--tg-theme-hint-color, #999);
-    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px;
-  }
+  /* ── TIME ── */
+  .time-section { background: var(--tg-theme-secondary-bg-color, #f2f2f7); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+  .time-label { font-size: 13px; font-weight: 600; color: var(--tg-theme-hint-color, #999); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
   .time-row { display: flex; align-items: center; justify-content: center; gap: 12px; }
   .time-box { display: flex; flex-direction: column; align-items: center; gap: 8px; }
   .time-box > span { font-size: 12px; color: var(--tg-theme-hint-color, #999); }
   .time-controls { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-
-  .time-btn {
-    background: var(--tg-theme-button-color, #2481cc);
-    border: none; border-radius: 10px; color: #fff;
-    font-size: 16px; font-weight: 700;
-    width: 76px; height: 38px;
-    cursor: pointer; transition: opacity 0.1s;
-  }
+  .time-btn { background: var(--tg-theme-button-color, #2481cc); border: none; border-radius: 10px; color: #fff; font-size: 16px; font-weight: 700; width: 80px; height: 40px; cursor: pointer; transition: opacity 0.1s; }
   .time-btn:active { opacity: 0.7; }
-
-  /* Editable input */
-  .time-input {
-    background: var(--tg-theme-bg-color, #fff);
-    border: 2.5px solid var(--tg-theme-button-color, #2481cc);
-    border-radius: 12px;
-    font-size: 32px; font-weight: 700;
-    width: 76px; height: 60px;
-    text-align: center;
-    color: var(--tg-theme-text-color, #000);
-    outline: none;
-    -moz-appearance: textfield;
-    caret-color: var(--tg-theme-button-color, #2481cc);
-  }
-  .time-input::-webkit-inner-spin-button,
-  .time-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .time-input { background: var(--tg-theme-bg-color, #fff); border: 2.5px solid var(--tg-theme-button-color, #2481cc); border-radius: 12px; font-size: 32px; font-weight: 700; width: 80px; height: 62px; text-align: center; color: var(--tg-theme-text-color, #000); outline: none; -moz-appearance: textfield; caret-color: var(--tg-theme-button-color, #2481cc); }
+  .time-input::-webkit-inner-spin-button, .time-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .time-input:focus { box-shadow: 0 0 0 3px rgba(36,129,204,0.18); }
-
   .time-colon { font-size: 34px; font-weight: 700; color: var(--tg-theme-text-color, #000); margin-top: 2px; }
 
   /* ── SUMMARY ── */
-  .summary {
-    background: var(--tg-theme-secondary-bg-color, #f2f2f7);
-    border-radius: 16px; padding: 14px 18px; margin-bottom: 16px;
-    font-size: 14px; color: var(--tg-theme-hint-color, #666); display: none;
-  }
+  .summary { background: var(--tg-theme-secondary-bg-color, #f2f2f7); border-radius: 16px; padding: 14px 18px; margin-bottom: 12px; font-size: 14px; color: var(--tg-theme-hint-color, #666); display: none; }
   .summary.show { display: block; }
   .summary strong { color: var(--tg-theme-text-color, #000); font-weight: 600; }
 
-  /* ── BOTTOM BAR ── */
-  .confirm-bar {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    padding: 10px 16px 16px;
-    background: var(--tg-theme-bg-color, #fff);
-    border-top: 1px solid rgba(0,0,0,0.07);
-  }
-  .confirm-bar button {
-    width: 100%; padding: 15px;
-    background: var(--tg-theme-button-color, #2481cc);
-    color: var(--tg-theme-button-text-color, #fff);
-    border: none; border-radius: 13px;
-    font-size: 16px; font-weight: 600;
-    cursor: pointer; transition: opacity 0.15s;
-  }
-  .confirm-bar button:disabled { opacity: 0.4; cursor: default; }
-  .confirm-bar button:active:not(:disabled) { opacity: 0.82; }
-  .error-msg { color: #ff3b30; font-size: 13px; text-align: center; margin-top: 6px; min-height: 18px; }
+  /* ── ERROR ── */
+  .error-msg { color: #ff3b30; font-size: 13px; text-align: center; margin-bottom: 8px; min-height: 18px; }
+
+  /* ── STATUS ── */
+  .status { font-size: 13px; text-align: center; color: var(--tg-theme-hint-color, #888); padding: 8px 0; }
+  .status.success { color: #34c759; font-weight: 600; }
+  .status.error { color: #ff3b30; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -146,8 +85,7 @@
       <span>Hour</span>
       <div class="time-controls">
         <button class="time-btn" id="hourUp">▲</button>
-        <input class="time-input" id="hourInput" type="number" min="0" max="23"
-               inputmode="numeric" pattern="[0-9]*">
+        <input class="time-input" id="hourInput" type="number" min="0" max="23" inputmode="numeric" pattern="[0-9]*">
         <button class="time-btn" id="hourDown">▼</button>
       </div>
     </div>
@@ -156,8 +94,7 @@
       <span>Minute</span>
       <div class="time-controls">
         <button class="time-btn" id="minUp">▲</button>
-        <input class="time-input" id="minInput" type="number" min="0" max="59"
-               inputmode="numeric" pattern="[0-9]*">
+        <input class="time-input" id="minInput" type="number" min="0" max="59" inputmode="numeric" pattern="[0-9]*">
         <button class="time-btn" id="minDown">▼</button>
       </div>
     </div>
@@ -165,211 +102,173 @@
 </div>
 
 <div class="summary" id="summary"></div>
-
-<div class="confirm-bar">
-  <button id="confirmBtn" disabled>Select a date first</button>
-  <div class="error-msg" id="errorMsg"></div>
-</div>
+<div class="error-msg" id="errorMsg"></div>
+<div class="status" id="statusMsg"></div>
 
 <script>
-// ── Telegram WebApp init ───────────────────────────────────────────────────────
-const tg = window.Telegram && window.Telegram.WebApp;
-if (tg) { tg.ready(); tg.expand(); }
+// ── Telegram WebApp ───────────────────────────────────────────────────────────
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
 
-// ── IST "now" (UTC + 5:30) ────────────────────────────────────────────────────
+// Get user_id from Telegram initData
+let userId = null;
+try {
+  const params = new URLSearchParams(tg.initData);
+  const userStr = params.get("user");
+  if (userStr) userId = JSON.parse(userStr).id;
+} catch(e) {}
+
+// ── IST now ───────────────────────────────────────────────────────────────────
 function getNowIST() {
-  const utcMs = Date.now();
-  const istMs = utcMs + (5 * 60 + 30) * 60 * 1000;
+  const istMs = Date.now() + (5 * 60 + 30) * 60 * 1000;
   const d = new Date(istMs);
-  return {
-    year:   d.getUTCFullYear(),
-    month0: d.getUTCMonth(),
-    day:    d.getUTCDate(),
-    hour:   d.getUTCHours(),
-    minute: d.getUTCMinutes(),
-    ms:     utcMs   // keep raw UTC for comparison
-  };
+  return { year: d.getUTCFullYear(), month0: d.getUTCMonth(), day: d.getUTCDate(), hour: d.getUTCHours(), minute: d.getUTCMinutes() };
 }
-
 const IST = getNowIST();
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let viewYear     = IST.year;
-let viewMonth    = IST.month0;
-let selectedDate = null;   // "YYYY-MM-DD"
-let selHour      = IST.hour;
-let selMinute    = IST.minute;
+let viewYear = IST.year, viewMonth = IST.month0;
+let selectedDate = null;
+let selHour = IST.hour, selMinute = IST.minute;
 
-const MONTHS = ["January","February","March","April","May","June",
-                "July","August","September","October","November","December"];
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MSHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAYS   = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
-// Set inputs to current IST time
 const hInput = document.getElementById("hourInput");
 const mInput = document.getElementById("minInput");
+function pad(n) { return String(n).padStart(2,"0"); }
 hInput.value = pad(selHour);
 mInput.value = pad(selMinute);
 
-function pad(n) { return String(n).padStart(2, "0"); }
+// ── MainButton setup ──────────────────────────────────────────────────────────
+tg.MainButton.setText("Select a date first");
+tg.MainButton.disable();
+tg.MainButton.show();
+tg.MainButton.onClick(doConfirm);
 
 // ── Calendar ──────────────────────────────────────────────────────────────────
 function renderCalendar() {
   document.getElementById("monthYear").textContent = MONTHS[viewMonth] + " " + viewYear;
   const grid = document.getElementById("calGrid");
   grid.innerHTML = "";
-
-  DAYS.forEach(d => {
-    const el = document.createElement("div");
-    el.className = "dow"; el.textContent = d;
-    grid.appendChild(el);
-  });
-
-  const firstDay    = new Date(viewYear, viewMonth, 1).getDay();
-  const startOffset = (firstDay + 6) % 7;
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const daysInPrev  = new Date(viewYear, viewMonth, 0).getDate();
-  const todayStr    = dateStr(IST.year, IST.month0, IST.day);
-
-  for (let i = startOffset - 1; i >= 0; i--)
-    addCell(grid, daysInPrev - i, true, false, false, false, null);
-
-  for (let d = 1; d <= daysInMonth; d++) {
-    const ds     = dateStr(viewYear, viewMonth, d);
-    addCell(grid, d, false, ds === todayStr, ds === selectedDate, isPastDay(viewYear, viewMonth, d), ds);
+  DAYS.forEach(d => { const el = document.createElement("div"); el.className="dow"; el.textContent=d; grid.appendChild(el); });
+  const first  = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
+  const total  = new Date(viewYear, viewMonth+1, 0).getDate();
+  const prev   = new Date(viewYear, viewMonth, 0).getDate();
+  const today  = dateStr(IST.year, IST.month0, IST.day);
+  for (let i = first-1; i >= 0; i--) addCell(grid, prev-i, true, false, false, false, null);
+  for (let d = 1; d <= total; d++) {
+    const ds = dateStr(viewYear, viewMonth, d);
+    addCell(grid, d, false, ds===today, ds===selectedDate, isPast(viewYear,viewMonth,d), ds);
   }
-
-  const rem = (startOffset + daysInMonth) % 7;
-  if (rem) for (let i = 1; i <= 7 - rem; i++)
-    addCell(grid, i, true, false, false, false, null);
+  const rem = (first+total)%7; if(rem) for(let i=1;i<=7-rem;i++) addCell(grid,i,true,false,false,false,null);
 }
 
-function addCell(grid, day, isOther, isToday, isSel, isPast, ds) {
-  const el = document.createElement("div");
-  el.className = "day";
-  if (isOther) el.classList.add("other-month");
-  if (isToday) el.classList.add("today");
-  if (isSel)   el.classList.add("selected");
-  if (isPast)  el.classList.add("past");
+function addCell(grid, day, isOther, isToday, isSel, isPastDay, ds) {
+  const el = document.createElement("div"); el.className="day";
+  if(isOther) el.classList.add("other-month");
+  if(isToday) el.classList.add("today");
+  if(isSel)   el.classList.add("selected");
+  if(isPastDay) el.classList.add("past");
   el.textContent = day;
-  if (!isOther && !isPast) {
-    el.onclick = () => { selectedDate = ds; renderCalendar(); validate(); };
-  }
+  if(!isOther && !isPastDay) el.onclick = () => { selectedDate=ds; renderCalendar(); validate(); };
   grid.appendChild(el);
 }
+function dateStr(y,m0,d) { return y+"-"+pad(m0+1)+"-"+pad(d); }
+function isPast(y,m0,d) { if(y!==IST.year) return y<IST.year; if(m0!==IST.month0) return m0<IST.month0; return d<IST.day; }
 
-function dateStr(y, m0, d) {
-  return y + "-" + pad(m0 + 1) + "-" + pad(d);
+document.getElementById("prevMonth").onclick = () => { if(--viewMonth<0){viewMonth=11;viewYear--;} renderCalendar(); };
+document.getElementById("nextMonth").onclick = () => { if(++viewMonth>11){viewMonth=0;viewYear++;} renderCalendar(); };
+
+// ── Time buttons ──────────────────────────────────────────────────────────────
+document.getElementById("hourUp").onclick   = () => { selHour=(selHour+1)%24; hInput.value=pad(selHour); validate(); };
+document.getElementById("hourDown").onclick = () => { selHour=(selHour+23)%24; hInput.value=pad(selHour); validate(); };
+document.getElementById("minUp").onclick    = () => { selMinute=(selMinute+1)%60; mInput.value=pad(selMinute); validate(); };
+document.getElementById("minDown").onclick  = () => { selMinute=(selMinute+59)%60; mInput.value=pad(selMinute); validate(); };
+
+// ── Keyboard input ────────────────────────────────────────────────────────────
+function bindInput(el, getVal, setVal, max) {
+  el.addEventListener("input", () => { const v=parseInt(el.value); if(!isNaN(v)&&v>=0&&v<=max){setVal(v);validate();} });
+  el.addEventListener("blur",  () => { let v=parseInt(el.value); if(isNaN(v)||v<0)v=0; if(v>max)v=max; setVal(v); el.value=pad(v); validate(); });
+  el.addEventListener("keydown", e => {
+    if(e.key==="ArrowUp")  {e.preventDefault(); setVal((getVal()+1)%(max+1)); el.value=pad(getVal()); validate();}
+    if(e.key==="ArrowDown"){e.preventDefault(); setVal((getVal()+max)%(max+1)); el.value=pad(getVal()); validate();}
+  });
 }
-
-function isPastDay(y, m0, d) {
-  if (y !== IST.year)   return y  < IST.year;
-  if (m0 !== IST.month0) return m0 < IST.month0;
-  return d < IST.day;
-}
-
-document.getElementById("prevMonth").onclick = () => {
-  if (--viewMonth < 0) { viewMonth = 11; viewYear--; } renderCalendar();
-};
-document.getElementById("nextMonth").onclick = () => {
-  if (++viewMonth > 11) { viewMonth = 0; viewYear++; } renderCalendar();
-};
-
-// ── Time — arrow buttons ──────────────────────────────────────────────────────
-document.getElementById("hourUp").onclick   = () => { selHour = (selHour + 1) % 24; hInput.value = pad(selHour); validate(); };
-document.getElementById("hourDown").onclick = () => { selHour = (selHour + 23) % 24; hInput.value = pad(selHour); validate(); };
-document.getElementById("minUp").onclick    = () => { selMinute = (selMinute + 1) % 60; mInput.value = pad(selMinute); validate(); };
-document.getElementById("minDown").onclick  = () => { selMinute = (selMinute + 59) % 60; mInput.value = pad(selMinute); validate(); };
-
-// ── Time — keyboard input ─────────────────────────────────────────────────────
-hInput.addEventListener("input", () => {
-  const v = parseInt(hInput.value);
-  if (!isNaN(v) && v >= 0 && v <= 23) { selHour = v; validate(); }
-});
-hInput.addEventListener("blur", () => {
-  let v = parseInt(hInput.value);
-  if (isNaN(v) || v < 0) v = 0;
-  if (v > 23) v = 23;
-  selHour = v; hInput.value = pad(v); validate();
-});
-hInput.addEventListener("keydown", e => {
-  if (e.key === "ArrowUp")   { e.preventDefault(); selHour = (selHour + 1) % 24; hInput.value = pad(selHour); validate(); }
-  if (e.key === "ArrowDown") { e.preventDefault(); selHour = (selHour + 23) % 24; hInput.value = pad(selHour); validate(); }
-});
-
-mInput.addEventListener("input", () => {
-  const v = parseInt(mInput.value);
-  if (!isNaN(v) && v >= 0 && v <= 59) { selMinute = v; validate(); }
-});
-mInput.addEventListener("blur", () => {
-  let v = parseInt(mInput.value);
-  if (isNaN(v) || v < 0) v = 0;
-  if (v > 59) v = 59;
-  selMinute = v; mInput.value = pad(v); validate();
-});
-mInput.addEventListener("keydown", e => {
-  if (e.key === "ArrowUp")   { e.preventDefault(); selMinute = (selMinute + 1) % 60; mInput.value = pad(selMinute); validate(); }
-  if (e.key === "ArrowDown") { e.preventDefault(); selMinute = (selMinute + 59) % 60; mInput.value = pad(selMinute); validate(); }
-});
+bindInput(hInput, ()=>selHour,   v=>{selHour=v;},   23);
+bindInput(mInput, ()=>selMinute, v=>{selMinute=v;}, 59);
 
 // ── Validation ────────────────────────────────────────────────────────────────
 function validate() {
   const errEl = document.getElementById("errorMsg");
-  const btn   = document.getElementById("confirmBtn");
   const sumEl = document.getElementById("summary");
-
   if (!selectedDate) {
-    btn.textContent = "Select a date first";
-    btn.disabled    = true;
-    sumEl.classList.remove("show");
-    errEl.textContent = "";
-    return;
+    tg.MainButton.setText("Select a date first"); tg.MainButton.disable();
+    sumEl.classList.remove("show"); errEl.textContent=""; return;
   }
-
-  const [y, mo, d] = selectedDate.split("-").map(Number);
-  const mo0 = mo - 1;
-
-  // pickedUTC: what the IST datetime equals in UTC epoch ms
-  // Date.UTC treats args as UTC, so subtract IST offset to get real UTC
-  const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
-  const pickedUTC = Date.UTC(y, mo0, d, selHour, selMinute, 0) - IST_OFFSET_MS;
-  const nowUTC    = Date.now();
-  const minUTC    = nowUTC + 2 * 60 * 1000;
-
-  const label = `${d} ${MSHORT[mo0]} ${y} at ${pad(selHour)}:${pad(selMinute)}`;
+  const [y,mo,d] = selectedDate.split("-").map(Number);
+  const IST_OFF  = (5*60+30)*60*1000;
+  const picked   = Date.UTC(y, mo-1, d, selHour, selMinute, 0) - IST_OFF;
+  const minTime  = Date.now() + 2*60*1000;
+  const label    = `${d} ${MSHORT[mo-1]} ${y} at ${pad(selHour)}:${pad(selMinute)}`;
   sumEl.innerHTML = `⏰ Scheduled for: <strong>${label} IST</strong>`;
   sumEl.classList.add("show");
-
-  if (pickedUTC < minUTC) {
+  if (picked < minTime) {
     errEl.textContent = "⚠️ Pick a time at least 2 minutes from now";
-    btn.textContent   = "Invalid time";
-    btn.disabled      = true;
+    tg.MainButton.setText("Invalid Time ✗"); tg.MainButton.disable();
   } else {
     errEl.textContent = "";
-    btn.textContent   = `✅ Schedule for ${label}`;
-    btn.disabled      = false;
+    tg.MainButton.setText(`✅ Schedule for ${label}`); tg.MainButton.enable();
   }
 }
 
-// ── Confirm ───────────────────────────────────────────────────────────────────
-document.getElementById("confirmBtn").onclick = function() {
-  if (this.disabled || !selectedDate) return;
-  const [y, mo, d] = selectedDate.split("-").map(Number);
-  const payload = JSON.stringify({ year: y, month: mo, day: d, hour: selHour, minute: selMinute });
+// ── Confirm — POST to server ──────────────────────────────────────────────────
+async function doConfirm() {
+  if (!selectedDate) return;
+  const [y,mo,d] = selectedDate.split("-").map(Number);
 
-  // tg.sendData only works when opened via bot's web_app button
-  if (tg && typeof tg.sendData === "function") {
-    try {
-      tg.sendData(payload);
-    } catch(e) {
-      // Fallback: close with data via MainButton or show success
-      alert("Data: " + payload);
+  // Show loading
+  tg.MainButton.showProgress();
+  tg.MainButton.disable();
+  document.getElementById("statusMsg").textContent = "⏳ Saving schedule...";
+  document.getElementById("statusMsg").className = "status";
+
+  try {
+    const res = await fetch("/save_schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: userId,
+        year: y, month: mo, day: d,
+        hour: selHour, minute: selMinute,
+        // Pass initData for server-side auth verification
+        init_data: tg.initData
+      })
+    });
+
+    const json = await res.json();
+    tg.MainButton.hideProgress();
+
+    if (json.ok) {
+      document.getElementById("statusMsg").textContent = "✅ Quiz scheduled! Closing...";
+      document.getElementById("statusMsg").className = "status success";
+      setTimeout(() => tg.close(), 1500);
+    } else {
+      document.getElementById("statusMsg").textContent = "❌ " + (json.error || "Failed");
+      document.getElementById("statusMsg").className = "status error";
+      tg.MainButton.enable();
+      tg.MainButton.setText("Try Again");
     }
-  } else {
-    // Opened directly in browser (testing) — just show payload
-    alert("Would send: " + payload);
+  } catch(e) {
+    tg.MainButton.hideProgress();
+    document.getElementById("statusMsg").textContent = "❌ Network error. Try again.";
+    document.getElementById("statusMsg").className = "status error";
+    tg.MainButton.enable();
+    tg.MainButton.setText("Try Again");
   }
-};
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 renderCalendar();
