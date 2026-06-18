@@ -146,16 +146,26 @@ def save_schedule_route():
             return jsonify({"ok": False, "error": "Missing user_id"}), 400
 
         state = WAITING_SCHEDULE_INPUT.get(user_id)
-        if not state or state.get("step") != "awaiting_webapp":
-            return jsonify({"ok": False, "error": "No active schedule session"}), 400
+        if not state:
+            return jsonify({"ok": False, "error": "No active schedule session. Please restart /schedule"}), 400
+        # Accept any step that has quiz_id and chat_id — step may differ due to timing
+        if not state.get("quiz_id") or not state.get("chat_id"):
+            return jsonify({"ok": False, "error": "Incomplete schedule session. Please restart /schedule"}), 400
 
         # Run async save in the bot's event loop
-        if ASYNC_LOOP[0] is None:
-            return jsonify({"ok": False, "error": "Bot loop not ready"}), 503
+        loop = ASYNC_LOOP[0]
+        if loop is None:
+            # Fallback: try to find running loop
+            try:
+                loop = asyncio.get_event_loop()
+            except Exception:
+                loop = None
+        if loop is None or not loop.is_running():
+            return jsonify({"ok": False, "error": "Bot loop not ready — please retry in a moment"}), 503
 
         future = asyncio.run_coroutine_threadsafe(
             _async_save_schedule(user_id, state, year, month, day, hour, minute),
-            ASYNC_LOOP[0]
+            loop
         )
         result = future.result(timeout=10)
         return jsonify(result)
@@ -4165,6 +4175,7 @@ async def main_async() -> None:
     # Create Telegram application
     application = ApplicationBuilder().token(TOKEN).pool_timeout(30).build()
     application_ref[0] = application.bot
+    ASYNC_LOOP[0] = asyncio.get_event_loop()
     
     # Add handlers
     # stopquiz registered FIRST with group=0 so it works even during active quiz
