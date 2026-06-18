@@ -597,8 +597,8 @@ async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text(
         msg,
         parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=True)
 
 # ─── POINTS COMMAND ───────────────────────────────────────────────────────────
 
@@ -629,8 +629,8 @@ async def points_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await update.message.reply_text(
         msg, parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=True)
 
 # ─── REDEEM COMMAND ───────────────────────────────────────────────────────────
 
@@ -641,15 +641,16 @@ async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if await is_premium(user_id):
         await update.message.reply_text(
             "🌟 You already have an active premium plan!\nUse /myplan to check details.",
-            parse_mode='Markdown'
-        )
+            parse_mode='Markdown',
+            disable_web_page_preview=True)
         return
 
     success, msg = await redeem_points_for_premium(user_id)
     keyboard = [[InlineKeyboardButton("📋 View My Plan", callback_data="my_plan")]] if success else \
                [[InlineKeyboardButton("👥 Invite Friends", callback_data="show_invite"),
                  InlineKeyboardButton("💎 Buy Premium", callback_data="premium_plans")]]
-    await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=True)
 
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -663,16 +664,16 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if await is_quiz_running(update.effective_chat.id):
         await update.message.reply_text(
             "⏳ A quiz is already running! Use /stopquiz to stop it first.",
-            parse_mode='Markdown'
-        )
+            parse_mode='Markdown',
+            disable_web_page_preview=True)
         return
 
     # Premium and sudo users don't need tokens
     if await is_sudo(user_id) or await is_premium(user_id):
         await update.message.reply_text(
             "🌟 You are a premium user! You don't need to watch ads.",
-            parse_mode='Markdown'
-        )
+            parse_mode='Markdown',
+            disable_web_page_preview=True)
         return
 
     # Check if user already has active token — cooldown 1 hour
@@ -694,8 +695,8 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                         f"⏳ <b>Cooldown Active!</b>\n\n"
                         f"You still have <b>{quizzes_left} quiz(es)</b> remaining.\n"
                         f"Please wait <b>{minutes}m {seconds}s</b> before watching another ad.",
-                        parse_mode='HTML'
-                    )
+                        parse_mode='HTML',
+                        disable_web_page_preview=True)
                     return
 
     # Generate a session param tied to this user
@@ -731,8 +732,8 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     sent = await update.message.reply_text(
         response_text,
         parse_mode='HTML',
-        reply_markup=reply_markup
-    )
+        reply_markup=reply_markup,
+        disable_web_page_preview=True)
     # Store message info for deletion after reward
     TOKEN_MESSAGES[user_id] = (update.effective_chat.id, sent.message_id)
 
@@ -742,7 +743,8 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # Only admin/sudo can use this
     if not await is_sudo(user_id):
-        await update.message.reply_text("❌ This command is restricted to admins only.")
+        await update.message.reply_text("❌ This command is restricted to admins only.",
+            disable_web_page_preview=True)
         return
 
     # Ask for confirmation before wiping all data
@@ -761,8 +763,8 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 InlineKeyboardButton("✅ Yes, Reset Everything", callback_data="confirm_refresh"),
                 InlineKeyboardButton("❌ Cancel",               callback_data="cancel_refresh"),
             ]
-        ])
-    )
+        ]),
+        disable_web_page_preview=True)
 
 # Token verification helper
 # ─── QUIZ ACTIVE GUARD ────────────────────────────────────────────────────────
@@ -785,7 +787,8 @@ async def stopquiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     result = get_active_session_for_chat(chat_id)
     if not result:
-        await update.message.reply_text("⚠️ No quiz is currently running in this chat.")
+        await update.message.reply_text("⚠️ No quiz is currently running in this chat.",
+            disable_web_page_preview=True)
         return
 
     session_id, session = result
@@ -811,8 +814,8 @@ async def stopquiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if not allowed:
         await update.message.reply_text(
-            "🚫 Only the quiz owner or a group admin can stop the quiz."
-        )
+            "🚫 Only the quiz owner or a group admin can stop the quiz.",
+            disable_web_page_preview=True)
         return
 
     # Stop the quiz
@@ -824,8 +827,8 @@ async def stopquiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"🛑 *Quiz rok di gayi!*\n\n"
         f"📋 Quiz: *{title}*\n"
         f"❓ Completed: {done}/{total} questions",
-        parse_mode='Markdown'
-    )
+        parse_mode='Markdown',
+        disable_web_page_preview=True)
 
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -840,8 +843,8 @@ async def check_access(update: Update, context: ContextTypes.DEFAULT_TYPE, handl
                 "🔒 *You must join our channel to use this bot!*\n\n"
                 "Please join the channel below, then tap ✅ I Joined.",
                 parse_mode="Markdown",
-                reply_markup=force_join_markup()
-            )
+                reply_markup=force_join_markup(),
+                disable_web_page_preview=True)
 
     # Block all commands while a quiz is active in this chat
     if await is_quiz_running(chat_id):
@@ -849,8 +852,8 @@ async def check_access(update: Update, context: ContextTypes.DEFAULT_TYPE, handl
             "⏳ *A quiz is in progress!*\n\n"
             "Other commands are disabled until the quiz ends.\n"
             "Use /stopquiz to stop the quiz.",
-            parse_mode='Markdown'
-        )
+            parse_mode='Markdown',
+            disable_web_page_preview=True)
         return
 
     if await is_sudo(user_id) or await is_premium(user_id) or await has_valid_token(user_id):
@@ -859,8 +862,8 @@ async def check_access(update: Update, context: ContextTypes.DEFAULT_TYPE, handl
     await update.message.reply_text(
         "🔒 Access restricted! You need premium or to watch an ad to use this feature.\n\n"
         "Use /token to watch a short ad and get 24-hour access, or contact us for premium.",
-        parse_mode='Markdown'
-    )
+        parse_mode='Markdown',
+        disable_web_page_preview=True)
 
 # Wrapper functions for access verification
 
@@ -913,8 +916,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 "To use this bot, you must first join our official channel.\n\n"
                 "📢 Join the channel below and then tap ✅ I Joined.",
                 parse_mode="Markdown",
-                reply_markup=force_join_markup()
-            )
+                reply_markup=force_join_markup(),
+                disable_web_page_preview=True)
             return
 
     # ── Handle referral deep-link (/start ref_XXXXXXX) ──────────────────────
@@ -947,16 +950,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         }
                         msg = await update.message.reply_text(
                             "📋 *" + quiz_doc["title"] + "*\n❓ " + str(quiz_doc["total"]) + " questions\n\nStarting... 🎯",
-                            parse_mode='Markdown'
-                        )
+                            parse_mode='Markdown',
+                            disable_web_page_preview=True)
                         await countdown_and_start(context.bot, chat_id, session_id, msg.message_id)
                     return
                 else:
-                    await update.message.reply_text("Quiz not found. It may have been deleted.")
+                    await update.message.reply_text("Quiz not found. It may have been deleted.",
+                        disable_web_page_preview=True)
                     return
             except Exception as e:
                 logger.error(f"Quiz deep link error: {e}")
-                await update.message.reply_text("An error occurred while starting the quiz.")
+                await update.message.reply_text("An error occurred while starting the quiz.",
+                    disable_web_page_preview=True)
                 return
 
         if arg.startswith("ref_"):
@@ -987,8 +992,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                                 chat_id=referrer_id,
                                 text=notif,
                                 parse_mode='Markdown',
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                disable_web_page_preview=True)
                         except Exception:
                             pass
             except (ValueError, IndexError):
@@ -1024,8 +1029,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         welcome_msg,
         parse_mode='Markdown',
-        reply_markup=reply_markup
-    )
+        reply_markup=reply_markup,
+        disable_web_page_preview=True)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await record_user_interaction(update)
@@ -1064,7 +1069,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "- No token required\n"
         "- Priority support",
         parse_mode='Markdown',
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
+        disable_web_page_preview=True
     )
 
 async def plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1112,14 +1118,14 @@ async def plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await query.edit_message_text(
             text=plans_message,
             parse_mode='HTML',
-            reply_markup=reply_markup
-        )
+            reply_markup=reply_markup,
+            disable_web_page_preview=True)
     else:
         await update.message.reply_text(
             plans_message,
             parse_mode='HTML',
-            reply_markup=reply_markup
-        )
+            reply_markup=reply_markup,
+            disable_web_page_preview=True)
 
 async def create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await record_user_interaction(update)
@@ -1127,8 +1133,8 @@ async def create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "📤 *Ready to create your quiz!*\n\n"
         "Please send me a .txt file containing your questions.\n\n"
         "Need format help? Use /help",
-        parse_mode='Markdown'
-    )
+        parse_mode='Markdown',
+        disable_web_page_preview=True)
 
 def preprocess_content(content: str) -> str:
     """Preprocess content to handle various text formats"""
@@ -1293,12 +1299,13 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text(
                 limit_msg,
                 parse_mode='HTML',
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                disable_web_page_preview=True)
             return
     
     if not update.message.document.file_name.endswith('.txt'):
-        await update.message.reply_text("❌ Please send a .txt file")
+        await update.message.reply_text("❌ Please send a .txt file",
+            disable_web_page_preview=True)
         return
     
     try:
@@ -1317,8 +1324,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if remaining_quota <= 0:
                 await update.message.reply_text(
                     f"⚠️ <b>Quiz limit reached!</b>\n\nWatch another ad with /token to get more quizzes.",
-                    parse_mode='HTML'
-                )
+                    parse_mode='HTML',
+                    disable_web_page_preview=True)
                 return
             if len(valid_questions) > remaining_quota:
                 valid_questions = valid_questions[:remaining_quota]
@@ -1332,14 +1339,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if len(errors) > 5:
                 error_msg += f"\n\n...and {len(errors)-5} more errors"
             await update.message.reply_text(
-                f"⚠️ Found {len(errors)} error(s):\n\n{error_msg}"
-            )
+                f"⚠️ Found {len(errors)} error(s):\n\n{error_msg}",
+                disable_web_page_preview=True)
         
         # Send quizzes with rate limiting
         if valid_questions:
             msg = await update.message.reply_text(
-                f"✅ Sending {len(valid_questions)} quiz question(s)..."
-            )
+                f"✅ Sending {len(valid_questions)} quiz question(s)...",
+                disable_web_page_preview=True)
             
             opt_prefix_re = re.compile(r'^[A-Da-d][\.\):\s]+')
             sent_count = 0
@@ -1361,8 +1368,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         await context.bot.send_message(
                             chat_id=update.effective_chat.id,
                             text=msg_text,
-                            parse_mode='Markdown'
-                        )
+                            parse_mode='Markdown',
+                            disable_web_page_preview=True)
 
                         # Step 2: Send poll with placeholder question and A/B/C/D options
                         poll_options = []
@@ -1445,14 +1452,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text(
                 "💾 *Would you like to save this quiz?*\n\nOnce saved, you can run it in groups too!",
                 parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                disable_web_page_preview=True)
         else:
-            await update.message.reply_text("❌ No valid questions found in file")
+            await update.message.reply_text("❌ No valid questions found in file",
+                disable_web_page_preview=True)
             
     except Exception as e:
         logger.error(f"File processing error: {str(e)}")
-        await update.message.reply_text("⚠️ Error processing file. Please try again.")
+        await update.message.reply_text("⚠️ Error processing file. Please try again.",
+            disable_web_page_preview=True)
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await record_user_interaction(update)
@@ -1460,12 +1469,14 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Check if user is owner
     owner_id = os.getenv('OWNER_ID')
     if not owner_id or str(update.effective_user.id) != owner_id:
-        await update.message.reply_text("🚫 This command is only available to the bot owner.")
+        await update.message.reply_text("🚫 This command is only available to the bot owner.",
+            disable_web_page_preview=True)
         return
 
     # Check if DB is initialized (not None)
     if DB is None:
-        await update.message.reply_text("⚠️ Database connection error. Stats unavailable.")
+        await update.message.reply_text("⚠️ Database connection error. Stats unavailable.",
+            disable_web_page_preview=True)
         return
         
     try:
@@ -1480,7 +1491,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
         # Ping calculation
         start_time = time.time()
-        ping_msg = await update.message.reply_text("🏓 Pong!")
+        ping_msg = await update.message.reply_text("🏓 Pong!",
+            disable_web_page_preview=True)
         ping_time = (time.time() - start_time) * 1000
         
         # Uptime calculation
@@ -1506,14 +1518,16 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
     except Exception as e:
         logger.error(f"Stats command error: {e}")
-        await update.message.reply_text("⚠️ Error retrieving statistics. Please try again later.")
+        await update.message.reply_text("⚠️ Error retrieving statistics. Please try again later.",
+            disable_web_page_preview=True)
 
 # Broadcast commands
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Check if user is owner
     owner_id = os.getenv('OWNER_ID')
     if not owner_id or str(update.effective_user.id) != owner_id:
-        await update.message.reply_text("🚫 This command is only available to the bot owner.")
+        await update.message.reply_text("🚫 This command is only available to the bot owner.",
+            disable_web_page_preview=True)
         return
         
     BROADCAST_STATE[update.effective_user.id] = {
@@ -1526,41 +1540,46 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "Please send the message you want to broadcast to all users.\n"
         "You can send text, photos, videos, stickers, documents, or any other media.\n\n"
         "When ready, use /confirm_broadcast to send or /cancel_broadcast to abort.",
-        parse_mode='HTML'
-    )
+        parse_mode='HTML',
+        disable_web_page_preview=True)
 
 async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Check if user is owner
     owner_id = os.getenv('OWNER_ID')
     if not owner_id or str(update.effective_user.id) != owner_id:
-        await update.message.reply_text("🚫 This command is only available to the bot owner.")
+        await update.message.reply_text("🚫 This command is only available to the bot owner.",
+            disable_web_page_preview=True)
         return
         
     user_id = update.effective_user.id
     if user_id not in BROADCAST_STATE or BROADCAST_STATE[user_id]['state'] != 'ready':
-        await update.message.reply_text("⚠️ No broadcast message prepared. Use /broadcast first.")
+        await update.message.reply_text("⚠️ No broadcast message prepared. Use /broadcast first.",
+            disable_web_page_preview=True)
         return
         
     broadcast_data = BROADCAST_STATE[user_id]['message']
     if not broadcast_data:
-        await update.message.reply_text("⚠️ No broadcast message found. Please try again.")
+        await update.message.reply_text("⚠️ No broadcast message found. Please try again.",
+            disable_web_page_preview=True)
         return
         
     # Get all users from DB
     if DB is None:
-        await update.message.reply_text("⚠️ Database connection error. Broadcast failed.")
+        await update.message.reply_text("⚠️ Database connection error. Broadcast failed.",
+            disable_web_page_preview=True)
         return
         
     try:
         total_users = await DB.users.count_documents({})
         if total_users == 0:
-            await update.message.reply_text("ℹ️ No users found in database.")
+            await update.message.reply_text("ℹ️ No users found in database.",
+                disable_web_page_preview=True)
             return
             
         progress_msg = await update.message.reply_text(
             f"📤 Starting broadcast to {total_users} users...\n"
-            "Sent: 0 | Failed: 0"
-        )
+            "Sent: 0 | Failed: 0",
+            disable_web_page_preview=True)
         
         users = DB.users.find({})
         sent_count = 0
@@ -1599,8 +1618,8 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                                 chat_id=user['user_id'],
                                 text=broadcast_data['text'],
                                 parse_mode=broadcast_data.get('parse_mode'),
-                                entities=broadcast_data.get('entities')
-                            )
+                                entities=broadcast_data.get('entities'),
+                                disable_web_page_preview=True)
                             sent_count += 1
                         else:
                             # For media messages, we'll need to handle them differently
@@ -1633,20 +1652,23 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             
     except Exception as e:
         logger.error(f"Broadcast error: {str(e)}")
-        await update.message.reply_text("⚠️ Error during broadcast. Please try again.")
+        await update.message.reply_text("⚠️ Error during broadcast. Please try again.",
+            disable_web_page_preview=True)
 
 async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Check if user is owner
     owner_id = os.getenv('OWNER_ID')
     if not owner_id or str(update.effective_user.id) != owner_id:
-        await update.message.reply_text("🚫 This command is only available to the bot owner.")
+        await update.message.reply_text("🚫 This command is only available to the bot owner.",
+            disable_web_page_preview=True)
         return
         
     user_id = update.effective_user.id
     if user_id in BROADCAST_STATE:
         del BROADCAST_STATE[user_id]
         
-    await update.message.reply_text("❌ Broadcast cancelled.")
+    await update.message.reply_text("❌ Broadcast cancelled.",
+        disable_web_page_preview=True)
 
 async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Check if user is in broadcast state
@@ -1661,7 +1683,8 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
     if user_id in WAITING_QUIZ_TITLE and update.message and update.message.text:
         title = update.message.text.strip()
         if not title:
-            await update.message.reply_text("Title cannot be empty. Please enter a title:")
+            await update.message.reply_text("Title cannot be empty. Please enter a title:",
+                disable_web_page_preview=True)
             return
         data = WAITING_QUIZ_TITLE.pop(user_id)
         questions = data["questions"]
@@ -1677,17 +1700,19 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
                 f"❓ Questions: {len(questions)}\n"
                 f"⏱ Time per question: {open_period}s\n\n"
                 "View your quizzes with /myquiz.",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                disable_web_page_preview=True)
         else:
-            await update.message.reply_text("An error occurred while saving. Please try again.")
+            await update.message.reply_text("An error occurred while saving. Please try again.",
+                disable_web_page_preview=True)
         return
 
     # Check if user is renaming a quiz
     if user_id in WAITING_QUIZ_RENAME and update.message and update.message.text:
         new_title = update.message.text.strip()
         if not new_title:
-            await update.message.reply_text("Title cannot be empty. Please send a valid title:")
+            await update.message.reply_text("Title cannot be empty. Please send a valid title:",
+                disable_web_page_preview=True)
             return
         data = WAITING_QUIZ_RENAME.pop(user_id)
         quiz_id = data["quiz_id"]
@@ -1696,9 +1721,11 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
             {"$set": {"title": new_title}}
         )
         if result.modified_count:
-            await update.message.reply_text(f"✅ Quiz renamed to *{new_title}*!", parse_mode="Markdown")
+            await update.message.reply_text(f"✅ Quiz renamed to *{new_title}*!", parse_mode="Markdown",
+                disable_web_page_preview=True)
         else:
-            await update.message.reply_text("⚠️ Could not rename. Quiz not found.")
+            await update.message.reply_text("⚠️ Could not rename. Quiz not found.",
+                disable_web_page_preview=True)
             return
         quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id, "user_id": user_id})
         try:
@@ -1712,8 +1739,8 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
         ])
         await update.message.reply_text(
             f"📋 *{new_title}*\n❓ {quiz_doc['total']} questions\n⏱ {quiz_doc.get('open_period',10)}s per question",
-            parse_mode="Markdown", reply_markup=keyboard
-        )
+            parse_mode="Markdown", reply_markup=keyboard,
+            disable_web_page_preview=True)
         return
 
     # Check if user is adding a question to a quiz
@@ -1747,7 +1774,8 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
                 f"❌ Could not parse question: {e}\n\n"
                 "Please use the format:\n"
                 "`Question text\nA) ...\nB) ...\nC) ...\nD) ...\nAnswer: B\nExplanation: optional`",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                disable_web_page_preview=True
             )
             WAITING_QUIZ_ADD_Q[user_id] = data  # keep waiting
             return
@@ -1759,7 +1787,8 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
         }
         quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id, "user_id": user_id})
         if not quiz_doc:
-            await update.message.reply_text("⚠️ Quiz not found.")
+            await update.message.reply_text("⚠️ Quiz not found.",
+                disable_web_page_preview=True)
             return
         questions = quiz_doc.get("questions", [])
         questions.append(new_q)
@@ -1772,8 +1801,8 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
         ])
         await update.message.reply_text(
             f"✅ Question added! Quiz now has *{len(questions)}* questions.",
-            parse_mode="Markdown", reply_markup=keyboard
-        )
+            parse_mode="Markdown", reply_markup=keyboard,
+            disable_web_page_preview=True)
         return
 
     if user_id not in BROADCAST_STATE or BROADCAST_STATE[user_id]['state'] != 'waiting_message':
@@ -1819,15 +1848,15 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
         )
         await update.message.reply_text(
             preview_text,
-            parse_mode='HTML'
-        )
+            parse_mode='HTML',
+            disable_web_page_preview=True)
     except Exception as e:
         logger.error(f"Could not forward message: {e}")
         await update.message.reply_text(
             "⚠️ Could not create a proper preview, but the message has been saved.\n\n"
             "Use /confirm_broadcast to send or /cancel_broadcast to abort.",
-            parse_mode='HTML'
-        )
+            parse_mode='HTML',
+            disable_web_page_preview=True)
 
 # Premium management commands
 async def add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1836,7 +1865,8 @@ async def add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Verify owner
     owner_id = os.getenv('OWNER_ID')
     if not owner_id or str(update.effective_user.id) != owner_id:
-        await update.message.reply_text("🚫 This command is only available to the bot owner.")
+        await update.message.reply_text("🚫 This command is only available to the bot owner.",
+            disable_web_page_preview=True)
         return
         
     # Check arguments
@@ -1847,8 +1877,8 @@ async def add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "Durations: 1hr, 2day, 3month, 1year, etc.\n\n"
             "Example: /add @username 1month\n"
             "          /add 123456789 1year\n"
-            "          Reply to a user and use /add 1day"
-        )
+            "          Reply to a user and use /add 1day",
+            disable_web_page_preview=True)
         return
         
     # Get target user
@@ -1895,7 +1925,8 @@ async def add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Parse duration string (e.g., "2hr", "3day", "1month")
     match = re.match(r'^(\d+)(hr|hour|day|month|year)s?$', duration_str)
     if not match:
-        await update.message.reply_text("❌ Invalid duration format. Use: 2hr, 3day, 1month, 1year")
+        await update.message.reply_text("❌ Invalid duration format. Use: 2hr, 3day, 1month, 1year",
+            disable_web_page_preview=True)
         return
     
     amount = int(match.group(1))
@@ -1903,7 +1934,8 @@ async def add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     duration = duration_map[unit] * amount
     
     if target_user_id is None:
-        await update.message.reply_text("❌ User not found. Please make sure the user has interacted with the bot.")
+        await update.message.reply_text("❌ User not found. Please make sure the user has interacted with the bot.",
+            disable_web_page_preview=True)
         return
     
     # Calculate dates
@@ -1943,8 +1975,8 @@ async def add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     f"⏰ ᴘʀᴇᴍɪᴜᴍ ᴀᴄᴄᴇꜱꜱ : {amount}{unit}\n"
                     f"⏳ ᴊᴏɪɴɪɴɢ ᴅᴀᴛᴇ : {join_date_ist} IST\n"
                     f"⌛️ ᴇxᴘɪʀʏ ᴅᴀᴛᴇ : {expiry_date_ist} IST"
-                )
-            )
+                ),
+                disable_web_page_preview=True)
         except Exception as e:
             logger.error(f"Could not send premium message to user: {e}")
         
@@ -1956,10 +1988,11 @@ async def add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f"⏰ ᴘʀᴇᴍɪᴜᴍ ᴀᴄᴄᴇꜱꜱ : {amount}{unit}\n\n"
             f"⏳ ᴊᴏɪɴɪɴɢ ᴅᴀᴛᴇ : {join_date_ist} IST\n"
             f"⌛️ ᴇxᴘɪʀʏ ᴅᴀᴛᴇ : {expiry_date_ist} IST",
-            parse_mode='Markdown'
-        )
+            parse_mode='Markdown',
+            disable_web_page_preview=True)
     else:
-        await update.message.reply_text("⚠️ Database error. Premium not added.")
+        await update.message.reply_text("⚠️ Database error. Premium not added.",
+            disable_web_page_preview=True)
 
 async def remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await record_user_interaction(update)
@@ -1967,7 +2000,8 @@ async def remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Verify owner
     owner_id = os.getenv('OWNER_ID')
     if not owner_id or str(update.effective_user.id) != owner_id:
-        await update.message.reply_text("🚫 This command is only available to the bot owner.")
+        await update.message.reply_text("🚫 This command is only available to the bot owner.",
+            disable_web_page_preview=True)
         return
         
     # Get target user
@@ -1990,7 +2024,8 @@ async def remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     target_user_id = user_data["user_id"]
     
     if target_user_id is None:
-        await update.message.reply_text("❌ Please specify a user by replying or providing user ID/username")
+        await update.message.reply_text("❌ Please specify a user by replying or providing user ID/username",
+            disable_web_page_preview=True)
         return
     
     # Remove from premium collection
@@ -2004,12 +2039,14 @@ async def remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             
             await update.message.reply_text(
                 f"✅ Premium access removed for user ID: `{target_user_id}`",
-                parse_mode='Markdown'
-            )
+                parse_mode='Markdown',
+                disable_web_page_preview=True)
         else:
-            await update.message.reply_text("ℹ️ User not found in premium list")
+            await update.message.reply_text("ℹ️ User not found in premium list",
+                disable_web_page_preview=True)
     else:
-        await update.message.reply_text("⚠️ Database error. Premium not removed.")
+        await update.message.reply_text("⚠️ Database error. Premium not removed.",
+            disable_web_page_preview=True)
 
 async def list_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await record_user_interaction(update)
@@ -2017,11 +2054,13 @@ async def list_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Verify owner
     owner_id = os.getenv('OWNER_ID')
     if not owner_id or str(update.effective_user.id) != owner_id:
-        await update.message.reply_text("🚫 This command is only available to the bot owner.")
+        await update.message.reply_text("🚫 This command is only available to the bot owner.",
+            disable_web_page_preview=True)
         return
         
     if DB is None:
-        await update.message.reply_text("⚠️ Database connection error.")
+        await update.message.reply_text("⚠️ Database connection error.",
+            disable_web_page_preview=True)
         return
     
     try:
@@ -2031,7 +2070,8 @@ async def list_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             premium_users.append(user)
         
         if not premium_users:
-            await update.message.reply_text("ℹ️ No premium users found.")
+            await update.message.reply_text("ℹ️ No premium users found.",
+                disable_web_page_preview=True)
             return
             
         response = "🌟 *Premium Users List* 🌟\n\n"
@@ -2054,12 +2094,13 @@ async def list_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         
         await update.message.reply_text(
             response,
-            parse_mode='Markdown'
-        )
+            parse_mode='Markdown',
+            disable_web_page_preview=True)
         
     except Exception as e:
         logger.error(f"Premium list error: {e}")
-        await update.message.reply_text("⚠️ Error retrieving premium users.")
+        await update.message.reply_text("⚠️ Error retrieving premium users.",
+            disable_web_page_preview=True)
 
 async def my_plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await record_user_interaction(update)
@@ -2085,9 +2126,11 @@ async def my_plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         response_text = "🔒 You don't have an active premium plan.\n\nUpgrade to premium for unlimited quiz creation and other benefits!"
         
         if update.callback_query:
-            await query.edit_message_text(response_text, reply_markup=reply_markup, parse_mode='Markdown')
+            await query.edit_message_text(response_text, reply_markup=reply_markup, parse_mode='Markdown',
+                disable_web_page_preview=True)
         else:
-            await message.reply_text(response_text, reply_markup=reply_markup, parse_mode='Markdown')
+            await message.reply_text(response_text, reply_markup=reply_markup, parse_mode='Markdown',
+                disable_web_page_preview=True)
         return
     
     # Get premium details
@@ -2111,17 +2154,21 @@ async def my_plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             
             if update.callback_query:
-                await query.edit_message_text(response, parse_mode='Markdown')
+                await query.edit_message_text(response, parse_mode='Markdown',
+                    disable_web_page_preview=True)
             else:
-                await message.reply_text(response, parse_mode='Markdown')
+                await message.reply_text(response, parse_mode='Markdown',
+                    disable_web_page_preview=True)
             return
     
     # Fallback if data not found
     response_text = "⚠️ Could not retrieve your premium information. Please contact support."
     if update.callback_query:
-        await query.edit_message_text(response_text, parse_mode='Markdown')
+        await query.edit_message_text(response_text, parse_mode='Markdown',
+            disable_web_page_preview=True)
     else:
-        await message.reply_text(response_text, parse_mode='Markdown')
+        await message.reply_text(response_text, parse_mode='Markdown',
+            disable_web_page_preview=True)
 
 # Button handler
 async def handle_inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2196,16 +2243,19 @@ async def startquiz_group_command(update: Update, context: ContextTypes.DEFAULT_
     # Extract quiz_id from command like /startquiz_<id>
     parts = text.strip().split("_", 1)
     if len(parts) < 2:
-        await update.message.reply_text("Invalid command format.")
+        await update.message.reply_text("Invalid command format.",
+            disable_web_page_preview=True)
         return
     quiz_id = parts[1].split("@")[0].strip()  # remove bot username if present
     try:
         quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id})
     except Exception:
-        await update.message.reply_text("Quiz not found. Please use a valid ID.")
+        await update.message.reply_text("Quiz not found. Please use a valid ID.",
+            disable_web_page_preview=True)
         return
     if not quiz_doc:
-        await update.message.reply_text("Quiz not found.")
+        await update.message.reply_text("Quiz not found.",
+            disable_web_page_preview=True)
         return
 
     is_group = update.effective_chat.type in ("group", "supergroup")
@@ -2227,8 +2277,8 @@ async def startquiz_group_command(update: Update, context: ContextTypes.DEFAULT_
         }
         msg = await update.message.reply_text(
             f"📋 *{quiz_doc['title']}*\n❓ {quiz_doc['total']} questions\n\nStarting... 🎯",
-            parse_mode='Markdown'
-        )
+            parse_mode='Markdown',
+            disable_web_page_preview=True)
         await countdown_and_start(context.bot, chat_id, session_id, msg.message_id)
 
 # ─── SAVED QUIZ HELPERS ───────────────────────────────────────────────────────
@@ -2308,7 +2358,8 @@ async def show_edit_menu(query, quiz_doc: dict):
         [InlineKeyboardButton("➕ Add a Question",          callback_data="eqadd_" + quiz_id)],
         [InlineKeyboardButton("🔙 Back",                    callback_data="startq_" + quiz_id)],
     ])
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard,
+        disable_web_page_preview=True)
 
 
 def _questions_page_keyboard(quiz_id: str, questions: list, page: int):
@@ -2346,10 +2397,11 @@ async def countdown_and_start(bot, chat_id: int, session_id: str, countdown_msg_
             if countdown_msg_id:
                 await bot.edit_message_text(
                     chat_id=chat_id, message_id=countdown_msg_id,
-                    text=text, parse_mode='Markdown'
-                )
+                    text=text, parse_mode='Markdown',
+                    disable_web_page_preview=True)
             else:
-                msg = await bot.send_message(chat_id=chat_id, text=text, parse_mode='Markdown')
+                msg = await bot.send_message(chat_id=chat_id, text=text, parse_mode='Markdown',
+                    disable_web_page_preview=True)
                 countdown_msg_id = msg.message_id
         except Exception:
             pass
@@ -2357,8 +2409,8 @@ async def countdown_and_start(bot, chat_id: int, session_id: str, countdown_msg_
     try:
         await bot.edit_message_text(
             chat_id=chat_id, message_id=countdown_msg_id,
-            text=f"🚀 *{title}* — Let's go! 🎯", parse_mode='Markdown'
-        )
+            text=f"🚀 *{title}* — Let's go! 🎯", parse_mode='Markdown',
+            disable_web_page_preview=True)
     except Exception:
         pass
     await asyncio.sleep(0.5)
@@ -2390,8 +2442,8 @@ async def start_group_quiz_with_approval(bot, chat_id: int, quiz_doc: dict, owne
             f"⏰ Auto-cancels in 60 seconds if fewer than 2 players join."
         ),
         parse_mode='Markdown',
-        reply_markup=keyboard
-    )
+        reply_markup=keyboard,
+        disable_web_page_preview=True)
 
     PENDING_GROUP_QUIZ[approval_id] = {
         "chat_id": chat_id,
@@ -2413,8 +2465,8 @@ async def start_group_quiz_with_approval(bot, chat_id: int, quiz_doc: dict, owne
                     chat_id=chat_id,
                     message_id=pending["message_id"],
                     text="⏰ *Quiz cancelled!*\n\nNot enough players joined. Please try again.",
-                    parse_mode='Markdown'
-                )
+                    parse_mode='Markdown',
+                    disable_web_page_preview=True)
             except Exception:
                 pass
     asyncio.create_task(auto_cancel())
@@ -2473,7 +2525,8 @@ async def send_quiz_question(bot, session_id: str):
             except Exception:
                 pass
 
-        await bot.send_message(chat_id=chat_id, text=result_text, parse_mode='HTML', reply_markup=share_markup)
+        await bot.send_message(chat_id=chat_id, text=result_text, parse_mode='HTML', reply_markup=share_markup,
+            disable_web_page_preview=True)
         ACTIVE_QUIZ_SESSIONS.pop(session_id, None)
         return
 
@@ -2498,7 +2551,8 @@ async def send_quiz_question(bot, session_id: str):
                 options_text += option_labels[i] + ") " + opt_clean + "\n"
             progress = f"❓ *Question {idx + 1}/{len(questions)}*"
             msg_text = progress + "\n\n*📋 Question:*\n```\n" + question_text + "\n\n" + options_text.rstrip() + "\n```"
-            await bot.send_message(chat_id=chat_id, text=msg_text, parse_mode='Markdown')
+            await bot.send_message(chat_id=chat_id, text=msg_text, parse_mode='Markdown',
+                disable_web_page_preview=True)
 
             poll_options = []
             for i, label in enumerate(['A', 'B', 'C', 'D']):
@@ -2657,12 +2711,13 @@ async def myquiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if await is_quiz_running(update.effective_chat.id):
         await update.message.reply_text(
             "⏳ A quiz is already running! Use /stopquiz to stop it first.",
-            parse_mode='Markdown'
-        )
+            parse_mode='Markdown',
+            disable_web_page_preview=True)
         return
     quizzes = await get_user_quizzes(user_id)
     if not quizzes:
-        await update.message.reply_text("📭 You have no saved quizzes.\n\nCreate one with /createquiz!", parse_mode='Markdown')
+        await update.message.reply_text("📭 You have no saved quizzes.\n\nCreate one with /createquiz!", parse_mode='Markdown',
+            disable_web_page_preview=True)
         return
 
     text = "📚 *Your Saved Quizzes:*\n\n"
@@ -2674,7 +2729,8 @@ async def myquiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         ])
     keyboard.append([InlineKeyboardButton("❌ Close", callback_data="close_menu")])
 
-    await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=True)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -2707,8 +2763,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("▶️ Watch Ad Now", callback_data="open_token")],
                 [InlineKeyboardButton("💎 Get Premium", callback_data="premium_plans")]
-            ])
-        )
+            ]),
+            disable_web_page_preview=True)
 
     elif query.data == "open_token":
         # Actually run token_command for this user
@@ -2726,8 +2782,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "🎬 <b>Watch a short ad to unlock more quizzes!</b>\n\n"
             "👇 Tap below to watch the ad, then claim your reward.",
             parse_mode='HTML',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True)
         TOKEN_MESSAGES[user_id] = (query.message.chat_id, sent.message_id)
 
     elif query.data == "redeem_points":
@@ -2735,14 +2791,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if await is_premium(user_id):
             await query.edit_message_text(
                 "🌟 You already have an active premium plan!\nUse /myplan to check details.",
-                parse_mode='Markdown'
-            )
+                parse_mode='Markdown',
+                disable_web_page_preview=True)
             return
         success, msg = await redeem_points_for_premium(user_id)
         keyboard = [[InlineKeyboardButton("📋 View My Plan", callback_data="my_plan")]] if success else \
                    [[InlineKeyboardButton("👥 Invite Friends", callback_data="show_invite"),
                      InlineKeyboardButton("💎 Buy Premium", callback_data="premium_plans")]]
-        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True)
 
     elif query.data == "show_invite":
         user_id = query.from_user.id
@@ -2775,12 +2832,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 [InlineKeyboardButton("💎 Buy Premium Instead", callback_data="premium_plans")]
             ]
 
-        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True)
 
     elif query.data == "save_quiz_yes":
         user_id = query.from_user.id
         if user_id not in PENDING_QUIZ_SAVE:
-            await query.edit_message_text("⚠️ Session expired. Please send the file again.")
+            await query.edit_message_text("⚠️ Session expired. Please send the file again.",
+                disable_web_page_preview=True)
             return
         keyboard = [
             [
@@ -2804,14 +2863,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "• 30-45 sec — Easy\n"
             "• 60 sec / 2 min — Long questions",
             parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True)
         # PENDING_QUIZ_SAVE ko abhi pop mat karo — time select hone par karenge
 
     elif query.data.startswith("qtime_"):
         user_id = query.from_user.id
         if user_id not in PENDING_QUIZ_SAVE:
-            await query.edit_message_text("⚠️ Session expired. Please send the file again.")
+            await query.edit_message_text("⚠️ Session expired. Please send the file again.",
+                disable_web_page_preview=True)
             return
         time_sec = int(query.data.split("_")[1])
         data = PENDING_QUIZ_SAVE.pop(user_id)
@@ -2821,12 +2881,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.edit_message_text(
             f"✅ Time set: *{time_label}* per question\n\n"
             "✏️ *Enter a name/title for your quiz:*",
-            parse_mode='Markdown'
-        )
+            parse_mode='Markdown',
+            disable_web_page_preview=True)
 
     elif query.data == "save_quiz_no":
         PENDING_QUIZ_SAVE.pop(query.from_user.id, None)
-        await query.edit_message_text("👍 Alright! Quiz was not saved.")
+        await query.edit_message_text("👍 Alright! Quiz was not saved.",
+            disable_web_page_preview=True)
 
     elif query.data == "close_menu":
         await query.message.delete()
@@ -2857,8 +2918,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"📅 Created: {format_ist(quiz_doc['created_at'])} IST\n\n"
             f"What would you like to do?",
             parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True)
 
     elif query.data.startswith("runq_here_"):
         quiz_id = query.data[10:]
@@ -2887,8 +2948,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"Total {quiz_doc['total']} questions. Here we go! 🎯\n\n"
             f"⚠️ Other commands are disabled until the quiz ends.\n"
             f"Use /stopquiz to stop anytime.",
-            parse_mode='Markdown'
-        )
+            parse_mode='Markdown',
+            disable_web_page_preview=True)
         await asyncio.sleep(1)
         await send_quiz_question(context.bot, session_id)
 
@@ -2906,8 +2967,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "Or copy this link and send it to your group admin:\n"
             "`" + startgroup_link + "`",
             parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True)
 
     elif query.data.startswith("join_quiz_"):
         approval_id = query.data[10:]
@@ -2939,8 +3000,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 f"✅ Ready: {count} players — {names_list}\n"
                 "⏰ Auto-cancels if fewer than 2 players join.",
                 parse_mode='Markdown',
-                reply_markup=keyboard
-            )
+                reply_markup=keyboard,
+                disable_web_page_preview=True)
         except Exception:
             pass
         # Auto-start when 2+ players ready
@@ -2967,8 +3028,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             try:
                 await query.edit_message_text(
                     f"✅ *{count} players ready!*\n\n🚀 Starting in 5...",
-                    parse_mode='Markdown'
-                )
+                    parse_mode='Markdown',
+                    disable_web_page_preview=True)
             except Exception:
                 pass
             await countdown_and_start(context.bot, chat_id, session_id, pending["message_id"])
@@ -3008,8 +3069,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             await query.edit_message_text(
                 "✅ *Owner ne force start kiya!*\n\n🚀 Starting in 5...",
-                parse_mode='Markdown'
-            )
+                parse_mode='Markdown',
+                disable_web_page_preview=True)
         except Exception:
             pass
         await countdown_and_start(context.bot, chat_id, session_id, pending["message_id"])
@@ -3039,8 +3100,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("❌ Cancel", callback_data="editq_" + quiz_id)]
-            ])
-        )
+            ]),
+            disable_web_page_preview=True)
 
     # ── eqtime_: pick new time per question ───────────────────────────────────
     elif query.data.startswith("eqtime_"):
@@ -3059,8 +3120,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.edit_message_text(
             "⏱ *Change Time per Question*\n\nSelect new time limit:",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(rows)
-        )
+            reply_markup=InlineKeyboardMarkup(rows),
+            disable_web_page_preview=True)
 
     # ── eqsettime_: save new time ─────────────────────────────────────────────
     elif query.data.startswith("eqsettime_"):
@@ -3102,8 +3163,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"Total: {len(questions)} questions\n\n"
             f"Tap 🗑 Remove to delete a question.",
             parse_mode="Markdown",
-            reply_markup=keyboard
-        )
+            reply_markup=keyboard,
+            disable_web_page_preview=True)
 
     # ── eqview_: show full question text ─────────────────────────────────────
     elif query.data.startswith("eqview_"):
@@ -3133,8 +3194,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🗑 Remove This Question", callback_data=f"eqrm_{quiz_id}_{q_idx}")],
                 [InlineKeyboardButton("🔙 Back to List", callback_data=f"eqqs_{quiz_id}_{page}")],
-            ])
-        )
+            ]),
+            disable_web_page_preview=True)
 
     # ── eqrm_: remove a question ──────────────────────────────────────────────
     elif query.data.startswith("eqrm_"):
@@ -3167,8 +3228,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"Total: {len(questions)} questions\n\n"
             f"Tap 🗑 Remove to delete a question.",
             parse_mode="Markdown",
-            reply_markup=keyboard
-        )
+            reply_markup=keyboard,
+            disable_web_page_preview=True)
 
     # ── eqadd_: ask user to paste a new question ──────────────────────────────
     elif query.data.startswith("eqadd_"):
@@ -3193,7 +3254,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("❌ Cancel", callback_data="editq_" + quiz_id)]
-            ])
+            ]),
+            disable_web_page_preview=True
         )
 
     elif query.data.startswith("delq_"):
@@ -3201,17 +3263,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user_id = query.from_user.id
         try:
             await DB.saved_quizzes.delete_one({"quiz_id": quiz_id, "user_id": user_id})
-            await query.edit_message_text("🗑️ Quiz deleted successfully!")
+            await query.edit_message_text("🗑️ Quiz deleted successfully!",
+                disable_web_page_preview=True)
         except Exception as e:
-            await query.edit_message_text("⚠️ An error occurred while deleting.")
+            await query.edit_message_text("⚠️ An error occurred while deleting.",
+                disable_web_page_preview=True)
 
     elif query.data == "check_joined":
         user_id = query.from_user.id
         if await check_force_join(context.bot, user_id):
             await query.edit_message_text(
                 "✅ *You're in! Welcome!*\n\nSend /start to begin.",
-                parse_mode="Markdown"
-            )
+                parse_mode="Markdown",
+                disable_web_page_preview=True)
         else:
             await query.answer(
                 "❌ You haven't joined yet! Please join the channel first.",
@@ -3251,21 +3315,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"• ✅ Invite points: <code>{deleted.get('invite_points', 0)}</code> records\n"
             "• ✅ All in-memory caches\n\n"
             "Everyone will need to /token again.",
-            parse_mode='HTML'
-        )
+            parse_mode='HTML',
+            disable_web_page_preview=True)
 
     elif query.data == "cancel_refresh":
         user_id = query.from_user.id
         if not await is_sudo(user_id):
             await query.answer("❌ Admins only!", show_alert=True)
             return
-        await query.edit_message_text("✅ Reset cancelled. No data was deleted.")
+        await query.edit_message_text("✅ Reset cancelled. No data was deleted.",
+            disable_web_page_preview=True)
 
     elif query.data == "back_myquiz":
         user_id = query.from_user.id
         quizzes = await get_user_quizzes(user_id)
         if not quizzes:
-            await query.edit_message_text("📭 No saved quizzes found.")
+            await query.edit_message_text("📭 No saved quizzes found.",
+                disable_web_page_preview=True)
             return
         text = "📚 *Your Saved Quizzes:*\n\n"
         keyboard = []
@@ -3273,7 +3339,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             text += f"{i}. *{q['title']}* — {q['total']} questions\n"
             keyboard.append([InlineKeyboardButton("▶️ " + q['title'], callback_data="startq_" + str(q.get('quiz_id', str(q['_id']))))])
         keyboard.append([InlineKeyboardButton("❌ Close", callback_data="close_menu")])
-        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True)
 
 # Optimized token validation with caching
 async def has_valid_token(user_id):
@@ -3364,8 +3431,8 @@ async def process_pending_tokens():
                         await bot.send_message(
                             chat_id=chat_id,
                             text=f"🎉 <b>Access Granted!</b>\n\nYou can now generate <b>{quiz_limit} quizzes</b>! 🚀\n\nSend a .txt file to /createquiz to get started.",
-                            parse_mode='HTML'
-                        )
+                            parse_mode='HTML',
+                            disable_web_page_preview=True)
                     except Exception as e:
                         logger.error(f"Failed to send reward msg to {user_id}: {e}")
 
@@ -3400,8 +3467,8 @@ async def _fire_scheduled_quiz(schedule_id: str, sched: dict):
         if not quiz_doc:
             await bot.send_message(
                 chat_id=chat_id,
-                text="⚠️ Scheduled quiz could not start — it may have been deleted."
-            )
+                text="⚠️ Scheduled quiz could not start — it may have been deleted.",
+                disable_web_page_preview=True)
             return
 
         running = any(s["chat_id"] == chat_id for s in ACTIVE_QUIZ_SESSIONS.values())
@@ -3413,8 +3480,8 @@ async def _fire_scheduled_quiz(schedule_id: str, sched: dict):
                     f"⏰ Scheduled quiz <b>{safe_title}</b> could not start "
                     "because another quiz is already running."
                 ),
-                parse_mode="HTML"
-            )
+                parse_mode="HTML",
+                disable_web_page_preview=True)
             return
 
         session_id = "sched_" + schedule_id
@@ -3438,7 +3505,8 @@ async def _fire_scheduled_quiz(schedule_id: str, sched: dict):
             f"\u2753 {quiz_doc['total']} questions\n\n"
             "Get ready! \U0001f680"
         )
-        msg = await bot.send_message(chat_id=chat_id, text=announcement, parse_mode="HTML")
+        msg = await bot.send_message(chat_id=chat_id, text=announcement, parse_mode="HTML",
+            disable_web_page_preview=True)
         await countdown_and_start(bot, chat_id, session_id, msg.message_id)
 
     except Exception as e:
@@ -3462,15 +3530,16 @@ async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if DB is None:
-        await update.message.reply_text("\u26a0\ufe0f Database not connected.")
+        await update.message.reply_text("\u26a0\ufe0f Database not connected.",
+            disable_web_page_preview=True)
         return
 
     quizzes = await get_user_quizzes(user_id)
     if not quizzes:
         await update.message.reply_text(
             "\U0001f4ed You have no saved quizzes.\n\nCreate one first with /createquiz!",
-            parse_mode="Markdown"
-        )
+            parse_mode="Markdown",
+            disable_web_page_preview=True)
         return
 
     keyboard = []
@@ -3486,8 +3555,8 @@ async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "\U0001f5d3 *Schedule a Quiz*\n\n*Step 1/3* — Choose which quiz to schedule:",
         parse_mode="Markdown",
-        disable_web_page_preview=True,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=True
     )
 
 
@@ -3496,7 +3565,8 @@ async def myschedules_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await record_user_interaction(update)
     user_id = update.effective_user.id
     if DB is None:
-        await update.message.reply_text("\u26a0\ufe0f Database not connected.")
+        await update.message.reply_text("\u26a0\ufe0f Database not connected.",
+            disable_web_page_preview=True)
         return
 
     scheds = []
@@ -3507,8 +3577,8 @@ async def myschedules_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if not scheds:
         await update.message.reply_text(
-            "\U0001f4ed You have no pending scheduled quizzes.\nUse /schedule to schedule one!"
-        )
+            "\U0001f4ed You have no pending scheduled quizzes.\nUse /schedule to schedule one!",
+            disable_web_page_preview=True)
         return
 
     text = "\U0001f5d3 *Your Scheduled Quizzes:*\n\n"
@@ -3531,8 +3601,8 @@ async def myschedules_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     await update.message.reply_text(
         text, parse_mode="Markdown",
-        disable_web_page_preview=True,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=True
     )
 
 
@@ -3543,24 +3613,26 @@ async def cancelschedule_command(update: Update, context: ContextTypes.DEFAULT_T
     if not args:
         await update.message.reply_text(
             "Usage: /cancelschedule <schedule\\_id>\nGet IDs from /myschedules.",
-            parse_mode="Markdown"
-        )
+            parse_mode="Markdown",
+            disable_web_page_preview=True)
         return
     sid = args[0]
     if DB is None:
-        await update.message.reply_text("\u26a0\ufe0f Database not connected.")
+        await update.message.reply_text("\u26a0\ufe0f Database not connected.",
+            disable_web_page_preview=True)
         return
     doc = await DB.scheduled_quizzes.find_one({"schedule_id": sid, "owner_id": user_id})
     if not doc:
-        await update.message.reply_text("\u274c Schedule not found or not yours.")
+        await update.message.reply_text("\u274c Schedule not found or not yours.",
+            disable_web_page_preview=True)
         return
     await DB.scheduled_quizzes.delete_one({"schedule_id": sid})
     SCHEDULED_QUIZZES.pop(sid, None)
     safe_title = html.escape(doc["title"])
     await update.message.reply_text(
         f"\u2705 Scheduled quiz *{safe_title}* cancelled.",
-        parse_mode="Markdown"
-    )
+        parse_mode="Markdown",
+        disable_web_page_preview=True)
 
 
 
@@ -3656,8 +3728,8 @@ async def _sched_finalize(query, context, user_id, year, month, day, hour, minut
         await query.edit_message_text(
             "❌ *That time is in the past or too soon.*\n"
             "Please use /schedule again and pick a future time (at least 2 min ahead).",
-            parse_mode="Markdown"
-        )
+            parse_mode="Markdown",
+            disable_web_page_preview=True)
         WAITING_SCHEDULE_INPUT.pop(user_id, None)
         return
 
@@ -3714,7 +3786,8 @@ async def _handle_schedule_callbacks(query, context):
 
     if data == "sched_cancel":
         WAITING_SCHEDULE_INPUT.pop(user_id, None)
-        await query.edit_message_text("\u274c Scheduling cancelled.")
+        await query.edit_message_text("\u274c Scheduling cancelled.",
+            disable_web_page_preview=True)
         return True
 
     if data.startswith("sched_pick_"):
@@ -3724,7 +3797,8 @@ async def _handle_schedule_callbacks(query, context):
         except Exception:
             quiz_doc = None
         if not quiz_doc:
-            await query.edit_message_text("\u26a0\ufe0f Quiz not found.")
+            await query.edit_message_text("\u26a0\ufe0f Quiz not found.",
+                disable_web_page_preview=True)
             return True
 
         WAITING_SCHEDULE_INPUT[user_id] = {
@@ -3741,8 +3815,8 @@ async def _handle_schedule_callbacks(query, context):
             "\u2022 Add @userinfobot to your group and type /start\n"
             "\u2022 Or forward any group message to @userinfobot\n\n"
             "Group IDs look like: `-1001234567890`",
-            parse_mode="Markdown"
-        )
+            parse_mode="Markdown",
+            disable_web_page_preview=True)
         return True
 
     if data.startswith("sched_del_"):
@@ -3759,8 +3833,8 @@ async def _handle_schedule_callbacks(query, context):
         safe_title = html.escape(doc["title"])
         await query.edit_message_text(
             f"\u2705 Scheduled quiz *{safe_title}* has been cancelled.",
-            parse_mode="Markdown"
-        )
+            parse_mode="Markdown",
+            disable_web_page_preview=True)
         return True
 
     # ── Date/time picker steps ─────────────────────────────────────────────────
@@ -3776,8 +3850,8 @@ async def _handle_schedule_callbacks(query, context):
             f"\U0001f5d3 *Schedule a Quiz*\n\n"
             f"\U0001f4c5 Year: *{year}*\n\nSelect *Month*:",
             parse_mode="Markdown",
-            disable_web_page_preview=True,
-            reply_markup=_sched_month_keyboard(year)
+            reply_markup=_sched_month_keyboard(year),
+            disable_web_page_preview=True
         )
         return True
 
@@ -3795,8 +3869,8 @@ async def _handle_schedule_callbacks(query, context):
             f"\U0001f5d3 *Schedule a Quiz*\n\n"
             f"\U0001f4c5 {month_name} {year}\n\nSelect *Day*:",
             parse_mode="Markdown",
-            disable_web_page_preview=True,
-            reply_markup=_sched_day_keyboard(year, month)
+            reply_markup=_sched_day_keyboard(year, month),
+            disable_web_page_preview=True
         )
         return True
 
@@ -3815,8 +3889,8 @@ async def _handle_schedule_callbacks(query, context):
             f"\U0001f5d3 *Schedule a Quiz*\n\n"
             f"\U0001f4c5 {day} {month_name} {year}\n\nSelect *Hour* (IST):",
             parse_mode="Markdown",
-            disable_web_page_preview=True,
-            reply_markup=_sched_hour_keyboard(year, month, day)
+            reply_markup=_sched_hour_keyboard(year, month, day),
+            disable_web_page_preview=True
         )
         return True
 
@@ -3836,8 +3910,8 @@ async def _handle_schedule_callbacks(query, context):
             f"\U0001f5d3 *Schedule a Quiz*\n\n"
             f"\U0001f4c5 {day} {month_name} {year} — {hour:02d}:xx IST\n\nSelect *Minute*:",
             parse_mode="Markdown",
-            disable_web_page_preview=True,
-            reply_markup=_sched_minute_keyboard(year, month, day, hour)
+            reply_markup=_sched_minute_keyboard(year, month, day, hour),
+            disable_web_page_preview=True
         )
         return True
 
@@ -3859,8 +3933,8 @@ async def _handle_schedule_callbacks(query, context):
             await query.edit_message_text(
                 "\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 Select *Year*:",
                 parse_mode="Markdown",
-                disable_web_page_preview=True,
-                reply_markup=_sched_year_keyboard()
+                reply_markup=_sched_year_keyboard(),
+                disable_web_page_preview=True
             )
         elif rest.startswith("month_"):
             year = int(rest.split("_")[1])
@@ -3870,8 +3944,8 @@ async def _handle_schedule_callbacks(query, context):
             await query.edit_message_text(
                 f"\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 Year: *{year}*\n\nSelect *Month*:",
                 parse_mode="Markdown",
-                disable_web_page_preview=True,
-                reply_markup=_sched_month_keyboard(year)
+                reply_markup=_sched_month_keyboard(year),
+                disable_web_page_preview=True
             )
         elif rest.startswith("day_"):
             p = rest.split("_")
@@ -3885,8 +3959,8 @@ async def _handle_schedule_callbacks(query, context):
             await query.edit_message_text(
                 f"\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 {month_name} {year}\n\nSelect *Day*:",
                 parse_mode="Markdown",
-                disable_web_page_preview=True,
-                reply_markup=_sched_day_keyboard(year, month)
+                reply_markup=_sched_day_keyboard(year, month),
+                disable_web_page_preview=True
             )
         elif rest.startswith("hour_"):
             p = rest.split("_")
@@ -3901,8 +3975,8 @@ async def _handle_schedule_callbacks(query, context):
             await query.edit_message_text(
                 f"\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 {day} {month_name} {year}\n\nSelect *Hour* (IST):",
                 parse_mode="Markdown",
-                disable_web_page_preview=True,
-                reply_markup=_sched_hour_keyboard(year, month, day)
+                reply_markup=_sched_hour_keyboard(year, month, day),
+                disable_web_page_preview=True
             )
         return True
 
@@ -3930,8 +4004,8 @@ async def _handle_schedule_text_input(update: Update, context: ContextTypes.DEFA
         except ValueError:
             await update.message.reply_text(
                 "\u274c Invalid chat ID. Please send a numeric ID like `-1001234567890`.",
-                parse_mode="Markdown"
-            )
+                parse_mode="Markdown",
+                disable_web_page_preview=True)
             return True
 
         try:
@@ -3940,8 +4014,8 @@ async def _handle_schedule_text_input(update: Update, context: ContextTypes.DEFA
         except Exception:
             await update.message.reply_text(
                 "\u274c Bot is not in that group, or the chat ID is wrong.\n"
-                "Add the bot to the group first, then try again."
-            )
+                "Add the bot to the group first, then try again.",
+                disable_web_page_preview=True)
             return True
 
         state["chat_id"]    = chat_id
@@ -3973,8 +4047,8 @@ async def _handle_schedule_text_input(update: Update, context: ContextTypes.DEFA
             f"\u2705 Group: *{safe_chat}*\n\n"
             "*Step 3/3* \u2014 Tap the button to open the date & time picker:",
             parse_mode="Markdown",
-            disable_web_page_preview=True,
-            reply_markup=keyboard
+            reply_markup=keyboard,
+            disable_web_page_preview=True
         )
         return True
 
@@ -3996,8 +4070,8 @@ async def _handle_schedule_text_input(update: Update, context: ContextTypes.DEFA
         await update.message.reply_text(
             "\u2139\ufe0f Please tap the button below to open the date picker.",
             parse_mode="Markdown",
-            reply_markup=keyboard
-        )
+            reply_markup=keyboard,
+            disable_web_page_preview=True)
         return True
 
     return False
@@ -4089,8 +4163,8 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception:
         await update.message.reply_text(
             "\u274c Could not read the selected time. Please try /schedule again.",
-            parse_mode="Markdown"
-        )
+            parse_mode="Markdown",
+            disable_web_page_preview=True)
         WAITING_SCHEDULE_INPUT.pop(user_id, None)
         return
 
@@ -4101,8 +4175,8 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(
             "\u274c *That time has already passed or is too soon.*\n"
             "Please use /schedule again and pick a future time.",
-            parse_mode="Markdown"
-        )
+            parse_mode="Markdown",
+            disable_web_page_preview=True)
         WAITING_SCHEDULE_INPUT.pop(user_id, None)
         return
 
