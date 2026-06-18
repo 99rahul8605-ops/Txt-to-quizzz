@@ -3437,6 +3437,7 @@ async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "\U0001f5d3 *Schedule a Quiz*\n\n*Step 1/3* — Choose which quiz to schedule:",
         parse_mode="Markdown",
+        disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -3481,6 +3482,7 @@ async def myschedules_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     await update.message.reply_text(
         text, parse_mode="Markdown",
+        disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -3509,6 +3511,145 @@ async def cancelschedule_command(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_text(
         f"\u2705 Scheduled quiz *{safe_title}* cancelled.",
         parse_mode="Markdown"
+    )
+
+
+
+# ─── DATE/TIME PICKER HELPERS FOR /schedule ──────────────────────────────────
+
+def _sched_year_keyboard():
+    from datetime import datetime
+    now = datetime.utcnow()
+    ist_year = (now + __import__('datetime').timedelta(hours=5, minutes=30)).year
+    rows = []
+    row = []
+    for y in range(ist_year, ist_year + 3):
+        row.append(InlineKeyboardButton(str(y), callback_data=f"sdty_{y}"))
+    rows.append(row)
+    rows.append([InlineKeyboardButton("❌ Cancel", callback_data="sched_cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _sched_month_keyboard(year: int):
+    months = ["Jan","Feb","Mar","Apr","May","Jun",
+              "Jul","Aug","Sep","Oct","Nov","Dec"]
+    rows = []
+    row = []
+    for i, m in enumerate(months, 1):
+        row.append(InlineKeyboardButton(m, callback_data=f"sdtm_{year}_{i}"))
+        if len(row) == 4:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="sdtback_year"),
+                 InlineKeyboardButton("❌ Cancel", callback_data="sched_cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _sched_day_keyboard(year: int, month: int):
+    import calendar
+    _, total_days = calendar.monthrange(year, month)
+    rows = []
+    row = []
+    for d in range(1, total_days + 1):
+        row.append(InlineKeyboardButton(str(d), callback_data=f"sdtd_{year}_{month}_{d}"))
+        if len(row) == 7:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"sdtback_month_{year}"),
+                 InlineKeyboardButton("❌ Cancel", callback_data="sched_cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _sched_hour_keyboard(year: int, month: int, day: int):
+    rows = []
+    row = []
+    for h in range(0, 24):
+        label = f"{h:02d}:00"
+        row.append(InlineKeyboardButton(label, callback_data=f"sdth_{year}_{month}_{day}_{h}"))
+        if len(row) == 4:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"sdtback_day_{year}_{month}"),
+                 InlineKeyboardButton("❌ Cancel", callback_data="sched_cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _sched_minute_keyboard(year: int, month: int, day: int, hour: int):
+    rows = []
+    row = []
+    for mi in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]:
+        label = f"{hour:02d}:{mi:02d}"
+        row.append(InlineKeyboardButton(label, callback_data=f"sdtmi_{year}_{month}_{day}_{hour}_{mi}"))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"sdtback_hour_{year}_{month}_{day}"),
+                 InlineKeyboardButton("❌ Cancel", callback_data="sched_cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _sched_finalize(query, context, user_id, year, month, day, hour, minute):
+    """Called when user completes the datetime picker. Saves schedule to DB."""
+    import uuid as _uuid
+    from datetime import datetime, timedelta
+    naive_ist  = datetime(year, month, day, hour, minute)
+    run_at_utc = naive_ist - timedelta(hours=5, minutes=30)
+
+    if run_at_utc <= datetime.utcnow() + timedelta(minutes=2):
+        await query.edit_message_text(
+            "❌ *That time is in the past or too soon.*\n"
+            "Please use /schedule again and pick a future time (at least 2 min ahead).",
+            parse_mode="Markdown"
+        )
+        WAITING_SCHEDULE_INPUT.pop(user_id, None)
+        return
+
+    state = WAITING_SCHEDULE_INPUT.pop(user_id, {})
+    schedule_id  = _uuid.uuid4().hex[:12]
+    schedule_doc = {
+        "schedule_id": schedule_id,
+        "quiz_id":     state.get("quiz_id", ""),
+        "chat_id":     state.get("chat_id", 0),
+        "chat_title":  state.get("chat_title", ""),
+        "owner_id":    user_id,
+        "run_at":      run_at_utc,
+        "title":       state.get("quiz_title", "Quiz"),
+        "fired":       False,
+        "created_at":  datetime.utcnow(),
+    }
+
+    if DB is not None:
+        await DB.scheduled_quizzes.insert_one(schedule_doc)
+
+    SCHEDULED_QUIZZES[schedule_id] = {
+        "quiz_id":  state.get("quiz_id", ""),
+        "chat_id":  state.get("chat_id", 0),
+        "owner_id": user_id,
+        "run_at":   run_at_utc,
+        "title":    state.get("quiz_title", "Quiz"),
+        "fired":    False,
+    }
+
+    run_ist_str = format_ist(run_at_utc)
+    safe_quiz   = html.escape(state.get("quiz_title", "Quiz"))
+    safe_chat   = html.escape(state.get("chat_title", str(state.get("chat_id", ""))))
+    await query.edit_message_text(
+        "✅ *Quiz Scheduled Successfully!*\n\n"
+        f"📋 Quiz: *{safe_quiz}*\n"
+        f"📍 Group: *{safe_chat}*\n"
+        f"⏰ Time: *{run_ist_str} IST*\n\n"
+        f"🆔 Schedule ID: `{schedule_id}`\n\n"
+        "Use /myschedules to view or cancel your schedules.",
+        parse_mode="Markdown",
+        disable_web_page_preview=True
     )
 
 
@@ -3573,6 +3714,149 @@ async def _handle_schedule_callbacks(query, context):
         )
         return True
 
+    # ── Date/time picker steps ─────────────────────────────────────────────────
+    state = WAITING_SCHEDULE_INPUT.get(user_id, {})
+
+    # Year selected
+    if data.startswith("sdty_"):
+        year = int(data.split("_")[1])
+        state["pick_year"] = year
+        state["step"] = "pick_month"
+        WAITING_SCHEDULE_INPUT[user_id] = state
+        await query.edit_message_text(
+            f"\U0001f5d3 *Schedule a Quiz*\n\n"
+            f"\U0001f4c5 Year: *{year}*\n\nSelect *Month*:",
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+            reply_markup=_sched_month_keyboard(year)
+        )
+        return True
+
+    # Month selected
+    if data.startswith("sdtm_"):
+        _, year, month = data.split("_")
+        year, month = int(year), int(month)
+        state["pick_year"]  = year
+        state["pick_month"] = month
+        state["step"] = "pick_day"
+        WAITING_SCHEDULE_INPUT[user_id] = state
+        import calendar
+        month_name = calendar.month_name[month]
+        await query.edit_message_text(
+            f"\U0001f5d3 *Schedule a Quiz*\n\n"
+            f"\U0001f4c5 {month_name} {year}\n\nSelect *Day*:",
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+            reply_markup=_sched_day_keyboard(year, month)
+        )
+        return True
+
+    # Day selected
+    if data.startswith("sdtd_"):
+        parts = data.split("_")
+        year, month, day = int(parts[1]), int(parts[2]), int(parts[3])
+        state["pick_year"]  = year
+        state["pick_month"] = month
+        state["pick_day"]   = day
+        state["step"] = "pick_hour"
+        WAITING_SCHEDULE_INPUT[user_id] = state
+        import calendar
+        month_name = calendar.month_name[month]
+        await query.edit_message_text(
+            f"\U0001f5d3 *Schedule a Quiz*\n\n"
+            f"\U0001f4c5 {day} {month_name} {year}\n\nSelect *Hour* (IST):",
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+            reply_markup=_sched_hour_keyboard(year, month, day)
+        )
+        return True
+
+    # Hour selected
+    if data.startswith("sdth_"):
+        parts = data.split("_")
+        year, month, day, hour = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+        state["pick_year"]  = year
+        state["pick_month"] = month
+        state["pick_day"]   = day
+        state["pick_hour"]  = hour
+        state["step"] = "pick_minute"
+        WAITING_SCHEDULE_INPUT[user_id] = state
+        import calendar
+        month_name = calendar.month_name[month]
+        await query.edit_message_text(
+            f"\U0001f5d3 *Schedule a Quiz*\n\n"
+            f"\U0001f4c5 {day} {month_name} {year} — {hour:02d}:xx IST\n\nSelect *Minute*:",
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+            reply_markup=_sched_minute_keyboard(year, month, day, hour)
+        )
+        return True
+
+    # Minute selected → finalize
+    if data.startswith("sdtmi_"):
+        parts = data.split("_")
+        year, month, day, hour, minute = (
+            int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
+        )
+        await _sched_finalize(query, context, user_id, year, month, day, hour, minute)
+        return True
+
+    # Back buttons
+    if data.startswith("sdtback_"):
+        rest = data[len("sdtback_"):]
+        if rest == "year":
+            state["step"] = "pick_year"
+            WAITING_SCHEDULE_INPUT[user_id] = state
+            await query.edit_message_text(
+                "\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 Select *Year*:",
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
+                reply_markup=_sched_year_keyboard()
+            )
+        elif rest.startswith("month_"):
+            year = int(rest.split("_")[1])
+            state["pick_year"] = year
+            state["step"] = "pick_month"
+            WAITING_SCHEDULE_INPUT[user_id] = state
+            await query.edit_message_text(
+                f"\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 Year: *{year}*\n\nSelect *Month*:",
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
+                reply_markup=_sched_month_keyboard(year)
+            )
+        elif rest.startswith("day_"):
+            p = rest.split("_")
+            year, month = int(p[1]), int(p[2])
+            import calendar
+            month_name = calendar.month_name[month]
+            state["pick_year"]  = year
+            state["pick_month"] = month
+            state["step"] = "pick_day"
+            WAITING_SCHEDULE_INPUT[user_id] = state
+            await query.edit_message_text(
+                f"\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 {month_name} {year}\n\nSelect *Day*:",
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
+                reply_markup=_sched_day_keyboard(year, month)
+            )
+        elif rest.startswith("hour_"):
+            p = rest.split("_")
+            year, month, day = int(p[1]), int(p[2]), int(p[3])
+            import calendar
+            month_name = calendar.month_name[month]
+            state["pick_year"]  = year
+            state["pick_month"] = month
+            state["pick_day"]   = day
+            state["step"] = "pick_hour"
+            WAITING_SCHEDULE_INPUT[user_id] = state
+            await query.edit_message_text(
+                f"\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 {day} {month_name} {year}\n\nSelect *Hour* (IST):",
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
+                reply_markup=_sched_hour_keyboard(year, month, day)
+            )
+        return True
+
     return False
 
 
@@ -3618,75 +3902,26 @@ async def _handle_schedule_text_input(update: Update, context: ContextTypes.DEFA
 
         safe_quiz  = html.escape(state["quiz_title"])
         safe_chat  = html.escape(chat_title)
+        state["step"] = "pick_year"
+        WAITING_SCHEDULE_INPUT[user_id] = state
         await update.message.reply_text(
             "\U0001f5d3 *Schedule a Quiz*\n\n"
             f"\u2705 Quiz: *{safe_quiz}*\n"
             f"\u2705 Group: *{safe_chat}*\n\n"
-            "*Step 3/3* \u2014 Send the date & time to run the quiz.\n\n"
-            "\U0001f4c5 Format: `DD/MM/YYYY HH:MM` *(IST)*\n"
-            "Example: `25/06/2025 18:30`\n\n"
-            "\u26a0\ufe0f Time must be at least 2 minutes in the future.",
-            parse_mode="Markdown"
+            "*Step 3/3* \u2014 Pick the date & time (IST):\n\n"
+            "\U0001f4c5 Select *Year*:",
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+            reply_markup=_sched_year_keyboard()
         )
         return True
 
-    # Step 3 — receive date/time in IST
-    if step == "time":
-        try:
-            naive_ist = datetime.strptime(text, "%d/%m/%Y %H:%M")
-        except ValueError:
-            await update.message.reply_text(
-                "\u274c Invalid format. Use `DD/MM/YYYY HH:MM`\nExample: `25/06/2025 18:30`",
-                parse_mode="Markdown"
-            )
-            return True
-
-        run_at_utc = naive_ist - timedelta(hours=5, minutes=30)
-        if run_at_utc <= datetime.utcnow() + timedelta(minutes=2):
-            await update.message.reply_text(
-                "\u274c Time must be at least 2 minutes in the future (IST). Please try again.",
-                parse_mode="Markdown"
-            )
-            return True
-
-        import uuid as _uuid
-        schedule_id  = _uuid.uuid4().hex[:12]
-        schedule_doc = {
-            "schedule_id": schedule_id,
-            "quiz_id":     state["quiz_id"],
-            "chat_id":     state["chat_id"],
-            "chat_title":  state.get("chat_title", ""),
-            "owner_id":    user_id,
-            "run_at":      run_at_utc,
-            "title":       state["quiz_title"],
-            "fired":       False,
-            "created_at":  datetime.utcnow(),
-        }
-
-        if DB is not None:
-            await DB.scheduled_quizzes.insert_one(schedule_doc)
-
-        SCHEDULED_QUIZZES[schedule_id] = {
-            "quiz_id":  state["quiz_id"],
-            "chat_id":  state["chat_id"],
-            "owner_id": user_id,
-            "run_at":   run_at_utc,
-            "title":    state["quiz_title"],
-            "fired":    False,
-        }
-
-        WAITING_SCHEDULE_INPUT.pop(user_id, None)
-
-        run_ist_str = format_ist(run_at_utc)
-        safe_quiz   = html.escape(state["quiz_title"])
-        safe_chat   = html.escape(state.get("chat_title", str(state["chat_id"])))
+    # Steps pick_year/pick_month/pick_day/pick_hour/pick_minute are handled
+    # via _handle_schedule_callbacks (inline button callbacks), not text input.
+    # If user somehow sends text during those steps, just remind them.
+    if step and step.startswith("pick_"):
         await update.message.reply_text(
-            "\u2705 *Quiz Scheduled Successfully!*\n\n"
-            f"\U0001f4cb Quiz: *{safe_quiz}*\n"
-            f"\U0001f4cd Group: *{safe_chat}*\n"
-            f"\u23f0 Time: *{run_ist_str} IST*\n\n"
-            f"\U0001f194 Schedule ID: `{schedule_id}`\n\n"
-            "Use /myschedules to view or cancel your schedules.",
+            "\u2139\ufe0f Please use the buttons above to select the date & time.",
             parse_mode="Markdown"
         )
         return True
