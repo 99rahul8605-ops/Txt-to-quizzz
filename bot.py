@@ -99,6 +99,10 @@ SCHEDULED_QUIZZES = {}
 # Multi-step schedule input state { user_id: { step, quiz_id, quiz_title, chat_id } }
 WAITING_SCHEDULE_INPUT = {}
 
+# Quiz mode: set of group chat_ids where messages are silently deleted during quiz
+# { chat_id: True }  — toggled by /quizmode command, stored in DB
+QUIZ_MODE_GROUPS = set()
+
 # Pending token rewards from webapp (Flask -> async bot bridge)
 pending_tokens = {}
 
@@ -363,6 +367,20 @@ async def create_schedule_index():
             logger.info("Created index for scheduled_quizzes")
     except Exception as e:
         logger.error(f"Error creating schedule index: {e}")
+
+
+async def load_quiz_mode_groups():
+    """Load quiz-mode-enabled groups from DB into memory on startup."""
+    global QUIZ_MODE_GROUPS
+    if DB is None:
+        return
+    try:
+        cursor = DB.group_settings.find({"quiz_mode": True})
+        async for doc in cursor:
+            QUIZ_MODE_GROUPS.add(doc["chat_id"])
+        logger.info(f"Loaded {len(QUIZ_MODE_GROUPS)} quiz-mode groups")
+    except Exception as e:
+        logger.error(f"load_quiz_mode_groups error: {e}")
 
 
 async def load_scheduled_quizzes():
@@ -1674,6 +1692,26 @@ async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Check if user is in broadcast state
     user_id = update.effective_user.id
+
+    # ── Quiz Mode: silently delete all messages during an active quiz ─────────
+    if update.message:
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            chat_id = chat.id
+            if chat_id in QUIZ_MODE_GROUPS:
+                # Check if a quiz is actually running in this group right now
+                quiz_running = any(
+                    s.get("chat_id") == chat_id
+                    for s in ACTIVE_QUIZ_SESSIONS.values()
+                )
+                if quiz_running:
+                    # Don't delete poll answers (they come via PollAnswer, not message)
+                    # Delete ALL messages — text, stickers, media, even from admins
+                    try:
+                        await update.message.delete()
+                    except Exception:
+                        pass  # silently ignore if already deleted or no permission
+                    return
 
     # Check if user is in schedule wizard (step 2: chat_id or step 3: time)
     if update.message and update.message.text:
@@ -3464,6 +3502,72 @@ async def scheduled_quiz_runner():
                 asyncio.create_task(_fire_scheduled_quiz(sid, sched))
 
 
+async def quizmode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/quizmode — toggle silent quiz mode for the current group (admins only)."""
+    chat = update.effective_chat
+    user_id = update.effective_user.id
+
+    if chat.type not in ("group", "supergroup"):
+        await update.message.reply_text(
+            "\u2139\ufe0f This command only works in groups.",
+            disable_web_page_preview=True)
+        return
+
+    chat_id = chat.id
+
+    # Admin check
+    try:
+        member = await context.bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+        is_admin = member.status in ("administrator", "creator")
+    except Exception:
+        is_admin = False
+
+    if not is_admin:
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="\u274c Only group admins can toggle Quiz Mode.",
+            disable_web_page_preview=True)
+        return
+
+    # Toggle
+    if chat_id in QUIZ_MODE_GROUPS:
+        QUIZ_MODE_GROUPS.discard(chat_id)
+        enabled = False
+    else:
+        QUIZ_MODE_GROUPS.add(chat_id)
+        enabled = True
+
+    # Persist to DB
+    if DB is not None:
+        try:
+            await DB.group_settings.update_one(
+                {"chat_id": chat_id},
+                {"$set": {"chat_id": chat_id, "quiz_mode": enabled}},
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"quizmode DB error: {e}")
+
+    if enabled:
+        await update.message.reply_text(
+            "\U0001f510 *Quiz Mode: ON*\n\n"
+            "During an active quiz, all non-quiz messages will be silently deleted — "
+            "including messages from admins.\n\n"
+            "Use /quizmode again to turn it off.",
+            parse_mode="Markdown",
+            disable_web_page_preview=True)
+    else:
+        await update.message.reply_text(
+            "\U0001f513 *Quiz Mode: OFF*\n\n"
+            "Members can chat freely during quizzes now.",
+            parse_mode="Markdown",
+            disable_web_page_preview=True)
+
+
 async def _send_quiz_reminder(schedule_id: str, sched: dict):
     """Send a 10-minute advance notification to the group and pin it."""
     bot = application_ref[0]
@@ -4325,8 +4429,11 @@ async def main_async() -> None:
             create_sudo_index(),
             create_premium_index(),
             create_invite_index(),
-            create_quiz_index()
+            create_quiz_index(),
+            create_schedule_index()
         )
+        await load_scheduled_quizzes()
+        await load_quiz_mode_groups()
     
     # Get token from environment
     TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -4355,6 +4462,7 @@ async def main_async() -> None:
     application.add_handler(CommandHandler("redeem", redeem_command))
     application.add_handler(MessageHandler(filters.Document.TEXT, handle_document_wrapper))
     application.add_handler(CommandHandler("myquiz", myquiz_command))
+    application.add_handler(CommandHandler("quizmode", quizmode_command))
     application.add_handler(CommandHandler("schedule", schedule_command))
     application.add_handler(CommandHandler("myschedules", myschedules_command))
     application.add_handler(CommandHandler("cancelschedule", cancelschedule_command))
