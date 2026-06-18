@@ -375,12 +375,13 @@ async def load_scheduled_quizzes():
         async for doc in cursor:
             sid = doc["schedule_id"]
             SCHEDULED_QUIZZES[sid] = {
-                "quiz_id":   doc["quiz_id"],
-                "chat_id":   doc["chat_id"],
-                "owner_id":  doc["owner_id"],
-                "run_at":    doc["run_at"],
-                "title":     doc["title"],
-                "fired":     False,
+                "quiz_id":        doc["quiz_id"],
+                "chat_id":        doc["chat_id"],
+                "owner_id":       doc["owner_id"],
+                "run_at":         doc["run_at"],
+                "title":          doc["title"],
+                "fired":          False,
+                "notified_10min": doc.get("notified_10min", False),
             }
         logger.info(f"Loaded {len(SCHEDULED_QUIZZES)} pending scheduled quizzes")
     except Exception as e:
@@ -3442,16 +3443,81 @@ async def process_pending_tokens():
 # ─── SCHEDULED QUIZ RUNNER ────────────────────────────────────────────────────
 
 async def scheduled_quiz_runner():
-    """Background task: wakes every 15 s and fires scheduled quizzes on time."""
+    """Background task: wakes every 15 s, sends 10-min reminder, fires scheduled quizzes."""
     while True:
         await asyncio.sleep(15)
         now = datetime.utcnow()
         for sid, sched in list(SCHEDULED_QUIZZES.items()):
             if sched["fired"]:
                 continue
-            if now >= sched["run_at"]:
+
+            time_left = (sched["run_at"] - now).total_seconds()
+
+            # 10-minute advance notification (between 10:15 and 9:45 min before)
+            if not sched.get("notified_10min") and 585 <= time_left <= 615:
+                SCHEDULED_QUIZZES[sid]["notified_10min"] = True
+                asyncio.create_task(_send_quiz_reminder(sid, sched))
+
+            # Fire when time is up
+            if time_left <= 0:
                 SCHEDULED_QUIZZES[sid]["fired"] = True
                 asyncio.create_task(_fire_scheduled_quiz(sid, sched))
+
+
+async def _send_quiz_reminder(schedule_id: str, sched: dict):
+    """Send a 10-minute advance notification to the group and pin it."""
+    bot = application_ref[0]
+    if not bot:
+        return
+    chat_id = sched["chat_id"]
+    title   = sched["title"]
+    run_at  = sched["run_at"]
+
+    try:
+        # Format time in IST
+        run_ist     = format_ist(run_at)
+        safe_title  = html.escape(title)
+
+        reminder_text = (
+            "\U0001f4e3 <b>Quiz Starting in 10 Minutes!</b>\n\n"
+            f"\U0001f4cb <b>{safe_title}</b>\n"
+            f"\u23f0 Starts at: <b>{run_ist} IST</b>\n\n"
+            "Get ready everyone! \U0001f3af\n"
+            "The quiz will begin automatically. Make sure you're here! \U0001f680"
+        )
+
+        # Send with notify (default) so all members get a notification
+        msg = await bot.send_message(
+            chat_id=chat_id,
+            text=reminder_text,
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+
+        # Pin the message — disable_notification=False so everyone gets pinned alert
+        try:
+            await bot.pin_chat_message(
+                chat_id=chat_id,
+                message_id=msg.message_id,
+                disable_notification=False
+            )
+        except Exception as pin_err:
+            logger.warning(f"Could not pin reminder for {schedule_id}: {pin_err}")
+
+        # Save notified flag to DB so it survives restart
+        if DB is not None:
+            try:
+                await DB.scheduled_quizzes.update_one(
+                    {"schedule_id": schedule_id},
+                    {"$set": {"notified_10min": True, "reminder_msg_id": msg.message_id}}
+                )
+            except Exception as db_err:
+                logger.error(f"Error saving notified_10min flag: {db_err}")
+
+        logger.info(f"10-min reminder sent for schedule {schedule_id} in chat {chat_id}")
+
+    except Exception as e:
+        logger.error(f"_send_quiz_reminder error for {schedule_id}: {e}")
 
 
 async def _fire_scheduled_quiz(schedule_id: str, sched: dict):
@@ -3751,12 +3817,13 @@ async def _sched_finalize(query, context, user_id, year, month, day, hour, minut
         await DB.scheduled_quizzes.insert_one(schedule_doc)
 
     SCHEDULED_QUIZZES[schedule_id] = {
-        "quiz_id":  state.get("quiz_id", ""),
-        "chat_id":  state.get("chat_id", 0),
-        "owner_id": user_id,
-        "run_at":   run_at_utc,
-        "title":    state.get("quiz_title", "Quiz"),
-        "fired":    False,
+        "quiz_id":        state.get("quiz_id", ""),
+        "chat_id":        state.get("chat_id", 0),
+        "owner_id":       user_id,
+        "run_at":         run_at_utc,
+        "title":          state.get("quiz_title", "Quiz"),
+        "fired":          False,
+        "notified_10min": False,
     }
 
     run_ist_str = format_ist(run_at_utc)
@@ -4018,6 +4085,25 @@ async def _handle_schedule_text_input(update: Update, context: ContextTypes.DEFA
                 disable_web_page_preview=True)
             return True
 
+        # ── Admin check: user must be admin/creator of that group ──────────────
+        try:
+            member = await context.bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+            is_admin = member.status in ("administrator", "creator")
+        except Exception:
+            is_admin = False
+
+        if not is_admin:
+            safe_title = html.escape(chat_title)
+            await update.message.reply_text(
+                f"\u274c *You are not an admin of {safe_title}.*\n\n"
+                "Only group admins can schedule a quiz in that group.\n"
+                "Please ask a group admin to schedule it, or use a group where you are an admin.",
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+            WAITING_SCHEDULE_INPUT.pop(user_id, None)
+            return True
+
         state["chat_id"]    = chat_id
         state["chat_title"] = chat_title
         state["step"]       = "time"
@@ -4104,12 +4190,13 @@ async def _async_save_schedule(user_id, state, year, month, day, hour, minute):
         await DB.scheduled_quizzes.insert_one(schedule_doc)
 
     SCHEDULED_QUIZZES[schedule_id] = {
-        "quiz_id":  state["quiz_id"],
-        "chat_id":  state["chat_id"],
-        "owner_id": user_id,
-        "run_at":   run_at_utc,
-        "title":    state["quiz_title"],
-        "fired":    False,
+        "quiz_id":        state["quiz_id"],
+        "chat_id":        state["chat_id"],
+        "owner_id":       user_id,
+        "run_at":         run_at_utc,
+        "title":          state["quiz_title"],
+        "fired":          False,
+        "notified_10min": False,
     }
 
     WAITING_SCHEDULE_INPUT.pop(user_id, None)
@@ -4197,12 +4284,13 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
         await DB.scheduled_quizzes.insert_one(schedule_doc)
 
     SCHEDULED_QUIZZES[schedule_id] = {
-        "quiz_id":  state["quiz_id"],
-        "chat_id":  state["chat_id"],
-        "owner_id": user_id,
-        "run_at":   run_at_utc,
-        "title":    state["quiz_title"],
-        "fired":    False,
+        "quiz_id":        state["quiz_id"],
+        "chat_id":        state["chat_id"],
+        "owner_id":       user_id,
+        "run_at":         run_at_utc,
+        "title":          state["quiz_title"],
+        "fired":          False,
+        "notified_10min": False,
     }
 
     WAITING_SCHEDULE_INPUT.pop(user_id, None)
