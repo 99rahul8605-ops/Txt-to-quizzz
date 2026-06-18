@@ -93,12 +93,6 @@ WAITING_QUIZ_RENAME = {}
 # WAITING_QUIZ_ADD_Q   { user_id: { quiz_id, message_id, chat_id } }
 WAITING_QUIZ_ADD_Q = {}
 
-# Scheduled quizzes in-memory mirror { schedule_id: {...} }
-SCHEDULED_QUIZZES = {}
-
-# Multi-step schedule input state { user_id: { step, quiz_id, quiz_title, chat_id } }
-WAITING_SCHEDULE_INPUT = {}
-
 # Pending token rewards from webapp (Flask -> async bot bridge)
 pending_tokens = {}
 
@@ -124,11 +118,6 @@ def health_check():
 def serve_webapp():
     """Serve the Mini Web App HTML page"""
     return send_from_directory('.', 'webapp.html')
-
-@app.route('/schedule_picker')
-def serve_schedule_picker():
-    """Serve the schedule date/time picker Mini App"""
-    return send_from_directory('.', 'schedule_picker.html')
 
 async def _db_get_temp_param(user_id):
     """Async helper: get temp param from DB"""
@@ -306,41 +295,6 @@ async def create_quiz_index():
             logger.info("Created index for saved_quizzes")
     except Exception as e:
         logger.error(f"Error creating quiz index: {e}")
-
-
-# Create index for scheduled_quizzes collection
-async def create_schedule_index():
-    try:
-        if DB is not None:
-            await DB.scheduled_quizzes.create_index("schedule_id", unique=True)
-            await DB.scheduled_quizzes.create_index("owner_id")
-            await DB.scheduled_quizzes.create_index("run_at")
-            await DB.scheduled_quizzes.create_index("fired")
-            logger.info("Created index for scheduled_quizzes")
-    except Exception as e:
-        logger.error(f"Error creating schedule index: {e}")
-
-
-async def load_scheduled_quizzes():
-    """Load pending (unfired) scheduled quizzes from DB into memory on startup"""
-    global SCHEDULED_QUIZZES
-    if DB is None:
-        return
-    try:
-        cursor = DB.scheduled_quizzes.find({"fired": False})
-        async for doc in cursor:
-            sid = doc["schedule_id"]
-            SCHEDULED_QUIZZES[sid] = {
-                "quiz_id":   doc["quiz_id"],
-                "chat_id":   doc["chat_id"],
-                "owner_id":  doc["owner_id"],
-                "run_at":    doc["run_at"],
-                "title":     doc["title"],
-                "fired":     False,
-            }
-        logger.info(f"Loaded {len(SCHEDULED_QUIZZES)} pending scheduled quizzes")
-    except Exception as e:
-        logger.error(f"load_scheduled_quizzes error: {e}")
 
 # Optimized user interaction recording
 async def record_user_interaction(update: Update):
@@ -1608,11 +1562,6 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
     # Check if user is in broadcast state
     user_id = update.effective_user.id
 
-    # Check if user is in schedule wizard (step 2: chat_id or step 3: time)
-    if update.message and update.message.text:
-        if await _handle_schedule_text_input(update, context):
-            return
-
     # Check if user is inputting quiz title
     if user_id in WAITING_QUIZ_TITLE and update.message and update.message.text:
         title = update.message.text.strip()
@@ -2390,29 +2339,19 @@ async def send_quiz_question(bot, session_id: str):
         scores = session.get("scores", {})
         total_q = len(questions)
         quiz_id = session.get("quiz_id", "")
-        safe_title = html.escape(session["title"])
         if scores:
             sorted_scores = sorted(scores.items(), key=lambda x: x[1]["score"], reverse=True)
             medals = ["\U0001f947", "\U0001f948", "\U0001f949"]
             leaderboard = ""
             for rank, (uid, data) in enumerate(sorted_scores, 1):
                 medal = medals[rank - 1] if rank <= 3 else str(rank) + "."
-                name = html.escape(data.get("name", "User"))
+                name = data.get("name", "User")
                 sc = data["score"]
                 pct = int((sc / total_q) * 100)
-                leaderboard += medal + " " + name + " — " + str(sc) + "/" + str(total_q) + " (" + str(pct) + "%)\n"
-            result_text = (
-                "\U0001f3c1 <b>Quiz Finished!</b>\n\n"
-                "\U0001f4cb <b>" + safe_title + "</b>\n"
-                "\U0001f4ca Total Questions: " + str(total_q) + "\n\n"
-                "\U0001f3c6 <b>Leaderboard:</b>\n\n" + leaderboard
-            )
+                leaderboard += medal + " " + name + " - " + str(sc) + "/" + str(total_q) + " (" + str(pct) + "%)\n"
+            result_text = "\U0001f3c1 *Quiz Finished!*\n\n" + "\U0001f4cb *" + session["title"] + "*\n" + "\U0001f4ca Total Questions: " + str(total_q) + "\n\n" + "\U0001f3c6 *Leaderboard:*\n\n" + leaderboard
         else:
-            result_text = (
-                "\U0001f3c1 <b>Quiz Finished!</b>\n\n"
-                "\U0001f4cb <b>" + safe_title + "</b>\n"
-                "\U0001f4ca Total Questions: " + str(total_q) + "\n\nNo one answered."
-            )
+            result_text = "\U0001f3c1 *Quiz Finished!*\n\n" + "\U0001f4cb *" + session["title"] + "*\n" + "\U0001f4ca Total Questions: " + str(total_q) + "\n\nNo one answered."
 
         # Share keyboard — only if we have a quiz_id
         share_markup = None
@@ -2429,7 +2368,7 @@ async def send_quiz_question(bot, session_id: str):
             except Exception:
                 pass
 
-        await bot.send_message(chat_id=chat_id, text=result_text, parse_mode='HTML', reply_markup=share_markup)
+        await bot.send_message(chat_id=chat_id, text=result_text, parse_mode='Markdown', reply_markup=share_markup)
         ACTIVE_QUIZ_SESSIONS.pop(session_id, None)
         return
 
@@ -2635,11 +2574,6 @@ async def myquiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-
-    # Handle schedule-related callbacks first
-    if query.data.startswith("sched_"):
-        await _handle_schedule_callbacks(query, context)
-        return
 
     if query.data == "premium_plans":
         await plan_command(update, context)
@@ -3328,720 +3262,6 @@ async def process_pending_tokens():
             except Exception as e:
                 logger.error(f"Error saving pending token for {user_id}: {e}")
 
-# ─── SCHEDULED QUIZ RUNNER ────────────────────────────────────────────────────
-
-async def scheduled_quiz_runner():
-    """Background task: wakes every 15 s and fires scheduled quizzes on time."""
-    while True:
-        await asyncio.sleep(15)
-        now = datetime.utcnow()
-        for sid, sched in list(SCHEDULED_QUIZZES.items()):
-            if sched["fired"]:
-                continue
-            if now >= sched["run_at"]:
-                SCHEDULED_QUIZZES[sid]["fired"] = True
-                asyncio.create_task(_fire_scheduled_quiz(sid, sched))
-
-
-async def _fire_scheduled_quiz(schedule_id: str, sched: dict):
-    """Actually launch a scheduled quiz in the target group."""
-    bot = application_ref[0]
-    if not bot:
-        return
-    quiz_id  = sched["quiz_id"]
-    chat_id  = sched["chat_id"]
-    owner_id = sched["owner_id"]
-    try:
-        quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id})
-        if not quiz_doc:
-            await bot.send_message(
-                chat_id=chat_id,
-                text="⚠️ Scheduled quiz could not start — it may have been deleted."
-            )
-            return
-
-        running = any(s["chat_id"] == chat_id for s in ACTIVE_QUIZ_SESSIONS.values())
-        if running:
-            safe_title = html.escape(quiz_doc["title"])
-            await bot.send_message(
-                chat_id=chat_id,
-                text=(
-                    f"⏰ Scheduled quiz <b>{safe_title}</b> could not start "
-                    "because another quiz is already running."
-                ),
-                parse_mode="HTML"
-            )
-            return
-
-        session_id = "sched_" + schedule_id
-        ACTIVE_QUIZ_SESSIONS[session_id] = {
-            "chat_id":        chat_id,
-            "questions":      quiz_doc["questions"],
-            "current_index":  0,
-            "title":          quiz_doc["title"],
-            "quiz_id":        quiz_id,
-            "owner_id":       owner_id,
-            "poll_message_id": None,
-            "active_poll_id":  None,
-            "scores":          {},
-            "open_period":     quiz_doc.get("open_period", 10),
-        }
-
-        safe_title = html.escape(quiz_doc["title"])
-        announcement = (
-            "\u23f0 <b>Scheduled Quiz Starting!</b>\n\n"
-            f"\U0001f4cb <b>{safe_title}</b>\n"
-            f"\u2753 {quiz_doc['total']} questions\n\n"
-            "Get ready! \U0001f680"
-        )
-        msg = await bot.send_message(chat_id=chat_id, text=announcement, parse_mode="HTML")
-        await countdown_and_start(bot, chat_id, session_id, msg.message_id)
-
-    except Exception as e:
-        logger.error(f"_fire_scheduled_quiz error for {schedule_id}: {e}")
-    finally:
-        try:
-            if DB is not None:
-                await DB.scheduled_quizzes.update_one(
-                    {"schedule_id": schedule_id},
-                    {"$set": {"fired": True, "fired_at": datetime.utcnow()}}
-                )
-        except Exception as e:
-            logger.error(f"Error marking schedule fired: {e}")
-
-
-# ─── /schedule COMMAND ────────────────────────────────────────────────────────
-
-async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/schedule — wizard to schedule a saved quiz in a group at a specific time."""
-    await record_user_interaction(update)
-    user_id = update.effective_user.id
-
-    if DB is None:
-        await update.message.reply_text("\u26a0\ufe0f Database not connected.")
-        return
-
-    quizzes = await get_user_quizzes(user_id)
-    if not quizzes:
-        await update.message.reply_text(
-            "\U0001f4ed You have no saved quizzes.\n\nCreate one first with /createquiz!",
-            parse_mode="Markdown"
-        )
-        return
-
-    keyboard = []
-    for q in quizzes[:10]:
-        qid   = str(q.get("quiz_id", str(q["_id"])))
-        title = q["title"]
-        keyboard.append([InlineKeyboardButton(
-            f"\U0001f4cb {title} ({q['total']} Qs)",
-            callback_data="sched_pick_" + qid
-        )])
-    keyboard.append([InlineKeyboardButton("\u274c Cancel", callback_data="sched_cancel")])
-
-    await update.message.reply_text(
-        "\U0001f5d3 *Schedule a Quiz*\n\n*Step 1/3* — Choose which quiz to schedule:",
-        parse_mode="Markdown",
-        disable_web_page_preview=True,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-async def myschedules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List all pending scheduled quizzes for the user."""
-    await record_user_interaction(update)
-    user_id = update.effective_user.id
-    if DB is None:
-        await update.message.reply_text("\u26a0\ufe0f Database not connected.")
-        return
-
-    scheds = []
-    async for doc in DB.scheduled_quizzes.find(
-        {"owner_id": user_id, "fired": False}
-    ).sort("run_at", 1):
-        scheds.append(doc)
-
-    if not scheds:
-        await update.message.reply_text(
-            "\U0001f4ed You have no pending scheduled quizzes.\nUse /schedule to schedule one!"
-        )
-        return
-
-    text = "\U0001f5d3 *Your Scheduled Quizzes:*\n\n"
-    keyboard = []
-    for i, doc in enumerate(scheds[:10], 1):
-        run_ist    = format_ist(doc["run_at"])
-        title      = doc["title"]
-        sid        = doc["schedule_id"]
-        chat_label = doc.get("chat_title") or str(doc["chat_id"])
-        text += (
-            f"{i}. *{title}*\n"
-            f"   \U0001f4cd Chat: {html.escape(chat_label)}\n"
-            f"   \u23f0 {run_ist} IST\n\n"
-        )
-        keyboard.append([InlineKeyboardButton(
-            f"\U0001f5d1 Cancel #{i}: {title[:22]}",
-            callback_data="sched_del_" + sid
-        )])
-    keyboard.append([InlineKeyboardButton("\u274c Close", callback_data="close_menu")])
-
-    await update.message.reply_text(
-        text, parse_mode="Markdown",
-        disable_web_page_preview=True,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-async def cancelschedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/cancelschedule <schedule_id>  — quick cancel by ID."""
-    user_id = update.effective_user.id
-    args    = context.args
-    if not args:
-        await update.message.reply_text(
-            "Usage: /cancelschedule <schedule\\_id>\nGet IDs from /myschedules.",
-            parse_mode="Markdown"
-        )
-        return
-    sid = args[0]
-    if DB is None:
-        await update.message.reply_text("\u26a0\ufe0f Database not connected.")
-        return
-    doc = await DB.scheduled_quizzes.find_one({"schedule_id": sid, "owner_id": user_id})
-    if not doc:
-        await update.message.reply_text("\u274c Schedule not found or not yours.")
-        return
-    await DB.scheduled_quizzes.delete_one({"schedule_id": sid})
-    SCHEDULED_QUIZZES.pop(sid, None)
-    safe_title = html.escape(doc["title"])
-    await update.message.reply_text(
-        f"\u2705 Scheduled quiz *{safe_title}* cancelled.",
-        parse_mode="Markdown"
-    )
-
-
-
-# ─── DATE/TIME PICKER HELPERS FOR /schedule ──────────────────────────────────
-
-def _sched_year_keyboard():
-    from datetime import datetime
-    now = datetime.utcnow()
-    ist_year = (now + __import__('datetime').timedelta(hours=5, minutes=30)).year
-    rows = []
-    row = []
-    for y in range(ist_year, ist_year + 3):
-        row.append(InlineKeyboardButton(str(y), callback_data=f"sdty_{y}"))
-    rows.append(row)
-    rows.append([InlineKeyboardButton("❌ Cancel", callback_data="sched_cancel")])
-    return InlineKeyboardMarkup(rows)
-
-
-def _sched_month_keyboard(year: int):
-    months = ["Jan","Feb","Mar","Apr","May","Jun",
-              "Jul","Aug","Sep","Oct","Nov","Dec"]
-    rows = []
-    row = []
-    for i, m in enumerate(months, 1):
-        row.append(InlineKeyboardButton(m, callback_data=f"sdtm_{year}_{i}"))
-        if len(row) == 4:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
-    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="sdtback_year"),
-                 InlineKeyboardButton("❌ Cancel", callback_data="sched_cancel")])
-    return InlineKeyboardMarkup(rows)
-
-
-def _sched_day_keyboard(year: int, month: int):
-    import calendar
-    _, total_days = calendar.monthrange(year, month)
-    rows = []
-    row = []
-    for d in range(1, total_days + 1):
-        row.append(InlineKeyboardButton(str(d), callback_data=f"sdtd_{year}_{month}_{d}"))
-        if len(row) == 7:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
-    rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"sdtback_month_{year}"),
-                 InlineKeyboardButton("❌ Cancel", callback_data="sched_cancel")])
-    return InlineKeyboardMarkup(rows)
-
-
-def _sched_hour_keyboard(year: int, month: int, day: int):
-    rows = []
-    row = []
-    for h in range(0, 24):
-        label = f"{h:02d}:00"
-        row.append(InlineKeyboardButton(label, callback_data=f"sdth_{year}_{month}_{day}_{h}"))
-        if len(row) == 4:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
-    rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"sdtback_day_{year}_{month}"),
-                 InlineKeyboardButton("❌ Cancel", callback_data="sched_cancel")])
-    return InlineKeyboardMarkup(rows)
-
-
-def _sched_minute_keyboard(year: int, month: int, day: int, hour: int):
-    rows = []
-    row = []
-    for mi in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]:
-        label = f"{hour:02d}:{mi:02d}"
-        row.append(InlineKeyboardButton(label, callback_data=f"sdtmi_{year}_{month}_{day}_{hour}_{mi}"))
-        if len(row) == 3:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
-    rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"sdtback_hour_{year}_{month}_{day}"),
-                 InlineKeyboardButton("❌ Cancel", callback_data="sched_cancel")])
-    return InlineKeyboardMarkup(rows)
-
-
-async def _sched_finalize(query, context, user_id, year, month, day, hour, minute):
-    """Called when user completes the datetime picker. Saves schedule to DB."""
-    import uuid as _uuid
-    from datetime import datetime, timedelta
-    naive_ist  = datetime(year, month, day, hour, minute)
-    run_at_utc = naive_ist - timedelta(hours=5, minutes=30)
-
-    if run_at_utc <= datetime.utcnow() + timedelta(minutes=2):
-        await query.edit_message_text(
-            "❌ *That time is in the past or too soon.*\n"
-            "Please use /schedule again and pick a future time (at least 2 min ahead).",
-            parse_mode="Markdown"
-        )
-        WAITING_SCHEDULE_INPUT.pop(user_id, None)
-        return
-
-    state = WAITING_SCHEDULE_INPUT.pop(user_id, {})
-    schedule_id  = _uuid.uuid4().hex[:12]
-    schedule_doc = {
-        "schedule_id": schedule_id,
-        "quiz_id":     state.get("quiz_id", ""),
-        "chat_id":     state.get("chat_id", 0),
-        "chat_title":  state.get("chat_title", ""),
-        "owner_id":    user_id,
-        "run_at":      run_at_utc,
-        "title":       state.get("quiz_title", "Quiz"),
-        "fired":       False,
-        "created_at":  datetime.utcnow(),
-    }
-
-    if DB is not None:
-        await DB.scheduled_quizzes.insert_one(schedule_doc)
-
-    SCHEDULED_QUIZZES[schedule_id] = {
-        "quiz_id":  state.get("quiz_id", ""),
-        "chat_id":  state.get("chat_id", 0),
-        "owner_id": user_id,
-        "run_at":   run_at_utc,
-        "title":    state.get("quiz_title", "Quiz"),
-        "fired":    False,
-    }
-
-    run_ist_str = format_ist(run_at_utc)
-    safe_quiz   = html.escape(state.get("quiz_title", "Quiz"))
-    safe_chat   = html.escape(state.get("chat_title", str(state.get("chat_id", ""))))
-    await query.edit_message_text(
-        "✅ *Quiz Scheduled Successfully!*\n\n"
-        f"📋 Quiz: *{safe_quiz}*\n"
-        f"📍 Group: *{safe_chat}*\n"
-        f"⏰ Time: *{run_ist_str} IST*\n\n"
-        f"🆔 Schedule ID: `{schedule_id}`\n\n"
-        "Use /myschedules to view or cancel your schedules.",
-        parse_mode="Markdown",
-        disable_web_page_preview=True
-    )
-
-
-# ─── SCHEDULE CALLBACK HANDLERS ───────────────────────────────────────────────
-
-async def _handle_schedule_callbacks(query, context):
-    """
-    Handle all sched_* callback_data values.
-    Returns True if consumed, False otherwise.
-    """
-    data    = query.data
-    user_id = query.from_user.id
-
-    if data == "sched_cancel":
-        WAITING_SCHEDULE_INPUT.pop(user_id, None)
-        await query.edit_message_text("\u274c Scheduling cancelled.")
-        return True
-
-    if data.startswith("sched_pick_"):
-        quiz_id = data[len("sched_pick_"):]
-        try:
-            quiz_doc = await DB.saved_quizzes.find_one({"quiz_id": quiz_id})
-        except Exception:
-            quiz_doc = None
-        if not quiz_doc:
-            await query.edit_message_text("\u26a0\ufe0f Quiz not found.")
-            return True
-
-        WAITING_SCHEDULE_INPUT[user_id] = {
-            "step":       "chat",
-            "quiz_id":    quiz_id,
-            "quiz_title": quiz_doc["title"],
-        }
-        safe_title = html.escape(quiz_doc["title"])
-        await query.edit_message_text(
-            "\U0001f5d3 *Schedule a Quiz*\n\n"
-            f"\u2705 Quiz selected: *{safe_title}*\n\n"
-            "*Step 2/3* \u2014 Send the *Group Chat ID* where the quiz should run.\n\n"
-            "\U0001f4a1 *How to get your group chat ID:*\n"
-            "\u2022 Add @userinfobot to your group and type /start\n"
-            "\u2022 Or forward any group message to @userinfobot\n\n"
-            "Group IDs look like: `-1001234567890`",
-            parse_mode="Markdown"
-        )
-        return True
-
-    if data.startswith("sched_del_"):
-        sid = data[len("sched_del_"):]
-        if DB is None:
-            await query.answer("DB not connected", show_alert=True)
-            return True
-        doc = await DB.scheduled_quizzes.find_one({"schedule_id": sid, "owner_id": user_id})
-        if not doc:
-            await query.answer("Schedule not found!", show_alert=True)
-            return True
-        await DB.scheduled_quizzes.delete_one({"schedule_id": sid})
-        SCHEDULED_QUIZZES.pop(sid, None)
-        safe_title = html.escape(doc["title"])
-        await query.edit_message_text(
-            f"\u2705 Scheduled quiz *{safe_title}* has been cancelled.",
-            parse_mode="Markdown"
-        )
-        return True
-
-    # ── Date/time picker steps ─────────────────────────────────────────────────
-    state = WAITING_SCHEDULE_INPUT.get(user_id, {})
-
-    # Year selected
-    if data.startswith("sdty_"):
-        year = int(data.split("_")[1])
-        state["pick_year"] = year
-        state["step"] = "pick_month"
-        WAITING_SCHEDULE_INPUT[user_id] = state
-        await query.edit_message_text(
-            f"\U0001f5d3 *Schedule a Quiz*\n\n"
-            f"\U0001f4c5 Year: *{year}*\n\nSelect *Month*:",
-            parse_mode="Markdown",
-            disable_web_page_preview=True,
-            reply_markup=_sched_month_keyboard(year)
-        )
-        return True
-
-    # Month selected
-    if data.startswith("sdtm_"):
-        _, year, month = data.split("_")
-        year, month = int(year), int(month)
-        state["pick_year"]  = year
-        state["pick_month"] = month
-        state["step"] = "pick_day"
-        WAITING_SCHEDULE_INPUT[user_id] = state
-        import calendar
-        month_name = calendar.month_name[month]
-        await query.edit_message_text(
-            f"\U0001f5d3 *Schedule a Quiz*\n\n"
-            f"\U0001f4c5 {month_name} {year}\n\nSelect *Day*:",
-            parse_mode="Markdown",
-            disable_web_page_preview=True,
-            reply_markup=_sched_day_keyboard(year, month)
-        )
-        return True
-
-    # Day selected
-    if data.startswith("sdtd_"):
-        parts = data.split("_")
-        year, month, day = int(parts[1]), int(parts[2]), int(parts[3])
-        state["pick_year"]  = year
-        state["pick_month"] = month
-        state["pick_day"]   = day
-        state["step"] = "pick_hour"
-        WAITING_SCHEDULE_INPUT[user_id] = state
-        import calendar
-        month_name = calendar.month_name[month]
-        await query.edit_message_text(
-            f"\U0001f5d3 *Schedule a Quiz*\n\n"
-            f"\U0001f4c5 {day} {month_name} {year}\n\nSelect *Hour* (IST):",
-            parse_mode="Markdown",
-            disable_web_page_preview=True,
-            reply_markup=_sched_hour_keyboard(year, month, day)
-        )
-        return True
-
-    # Hour selected
-    if data.startswith("sdth_"):
-        parts = data.split("_")
-        year, month, day, hour = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
-        state["pick_year"]  = year
-        state["pick_month"] = month
-        state["pick_day"]   = day
-        state["pick_hour"]  = hour
-        state["step"] = "pick_minute"
-        WAITING_SCHEDULE_INPUT[user_id] = state
-        import calendar
-        month_name = calendar.month_name[month]
-        await query.edit_message_text(
-            f"\U0001f5d3 *Schedule a Quiz*\n\n"
-            f"\U0001f4c5 {day} {month_name} {year} — {hour:02d}:xx IST\n\nSelect *Minute*:",
-            parse_mode="Markdown",
-            disable_web_page_preview=True,
-            reply_markup=_sched_minute_keyboard(year, month, day, hour)
-        )
-        return True
-
-    # Minute selected → finalize
-    if data.startswith("sdtmi_"):
-        parts = data.split("_")
-        year, month, day, hour, minute = (
-            int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
-        )
-        await _sched_finalize(query, context, user_id, year, month, day, hour, minute)
-        return True
-
-    # Back buttons
-    if data.startswith("sdtback_"):
-        rest = data[len("sdtback_"):]
-        if rest == "year":
-            state["step"] = "pick_year"
-            WAITING_SCHEDULE_INPUT[user_id] = state
-            await query.edit_message_text(
-                "\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 Select *Year*:",
-                parse_mode="Markdown",
-                disable_web_page_preview=True,
-                reply_markup=_sched_year_keyboard()
-            )
-        elif rest.startswith("month_"):
-            year = int(rest.split("_")[1])
-            state["pick_year"] = year
-            state["step"] = "pick_month"
-            WAITING_SCHEDULE_INPUT[user_id] = state
-            await query.edit_message_text(
-                f"\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 Year: *{year}*\n\nSelect *Month*:",
-                parse_mode="Markdown",
-                disable_web_page_preview=True,
-                reply_markup=_sched_month_keyboard(year)
-            )
-        elif rest.startswith("day_"):
-            p = rest.split("_")
-            year, month = int(p[1]), int(p[2])
-            import calendar
-            month_name = calendar.month_name[month]
-            state["pick_year"]  = year
-            state["pick_month"] = month
-            state["step"] = "pick_day"
-            WAITING_SCHEDULE_INPUT[user_id] = state
-            await query.edit_message_text(
-                f"\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 {month_name} {year}\n\nSelect *Day*:",
-                parse_mode="Markdown",
-                disable_web_page_preview=True,
-                reply_markup=_sched_day_keyboard(year, month)
-            )
-        elif rest.startswith("hour_"):
-            p = rest.split("_")
-            year, month, day = int(p[1]), int(p[2]), int(p[3])
-            import calendar
-            month_name = calendar.month_name[month]
-            state["pick_year"]  = year
-            state["pick_month"] = month
-            state["pick_day"]   = day
-            state["step"] = "pick_hour"
-            WAITING_SCHEDULE_INPUT[user_id] = state
-            await query.edit_message_text(
-                f"\U0001f5d3 *Schedule a Quiz*\n\n\U0001f4c5 {day} {month_name} {year}\n\nSelect *Hour* (IST):",
-                parse_mode="Markdown",
-                disable_web_page_preview=True,
-                reply_markup=_sched_hour_keyboard(year, month, day)
-            )
-        return True
-
-    return False
-
-
-async def _handle_schedule_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """
-    Called from handle_broadcast_message (the catch-all text handler).
-    Processes steps 2 (chat ID) and 3 (date/time) of the schedule wizard.
-    Returns True if the message was consumed.
-    """
-    user_id = update.effective_user.id
-    state   = WAITING_SCHEDULE_INPUT.get(user_id)
-    if not state:
-        return False
-
-    text = (update.message.text or "").strip()
-    step = state["step"]
-
-    # Step 2 — receive group chat ID
-    if step == "chat":
-        try:
-            chat_id = int(text)
-        except ValueError:
-            await update.message.reply_text(
-                "\u274c Invalid chat ID. Please send a numeric ID like `-1001234567890`.",
-                parse_mode="Markdown"
-            )
-            return True
-
-        try:
-            chat_info  = await context.bot.get_chat(chat_id)
-            chat_title = chat_info.title or str(chat_id)
-        except Exception:
-            await update.message.reply_text(
-                "\u274c Bot is not in that group, or the chat ID is wrong.\n"
-                "Add the bot to the group first, then try again."
-            )
-            return True
-
-        state["chat_id"]    = chat_id
-        state["chat_title"] = chat_title
-        state["step"]       = "time"
-        WAITING_SCHEDULE_INPUT[user_id] = state
-
-        safe_quiz  = html.escape(state["quiz_title"])
-        safe_chat  = html.escape(chat_title)
-        state["step"] = "awaiting_webapp"
-        WAITING_SCHEDULE_INPUT[user_id] = state
-
-        webapp_base = (
-            os.getenv("WEBAPP_URL") or
-            os.getenv("RENDER_EXTERNAL_URL") or
-            f"http://localhost:{os.environ.get('PORT', 8000)}"
-        )
-        picker_url = f"{webapp_base}/schedule_picker"
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "\U0001f4c5 Pick Date & Time",
-                web_app=WebAppInfo(url=picker_url)
-            )],
-            [InlineKeyboardButton("\u274c Cancel", callback_data="sched_cancel")]
-        ])
-        await update.message.reply_text(
-            "\U0001f5d3 *Schedule a Quiz*\n\n"
-            f"\u2705 Quiz: *{safe_quiz}*\n"
-            f"\u2705 Group: *{safe_chat}*\n\n"
-            "*Step 3/3* \u2014 Tap the button to open the date & time picker:",
-            parse_mode="Markdown",
-            disable_web_page_preview=True,
-            reply_markup=keyboard
-        )
-        return True
-
-    # If user sends text while webapp is open, remind them
-    if step == "awaiting_webapp":
-        webapp_base = (
-            os.getenv("WEBAPP_URL") or
-            os.getenv("RENDER_EXTERNAL_URL") or
-            f"http://localhost:{os.environ.get('PORT', 8000)}"
-        )
-        picker_url = f"{webapp_base}/schedule_picker"
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "\U0001f4c5 Pick Date & Time",
-                web_app=WebAppInfo(url=picker_url)
-            )],
-            [InlineKeyboardButton("\u274c Cancel", callback_data="sched_cancel")]
-        ])
-        await update.message.reply_text(
-            "\u2139\ufe0f Please tap the button below to open the date picker.",
-            parse_mode="Markdown",
-            reply_markup=keyboard
-        )
-        return True
-
-    return False
-
-
-async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Receives date/time from the schedule picker Mini App and saves the schedule."""
-    import json as _json
-    import uuid as _uuid
-
-    user_id  = update.effective_user.id
-    raw_data = update.effective_message.web_app_data.data
-
-    state = WAITING_SCHEDULE_INPUT.get(user_id)
-    if not state or state.get("step") != "awaiting_webapp":
-        # Not in schedule flow — ignore
-        return
-
-    try:
-        data   = _json.loads(raw_data)
-        year   = int(data["year"])
-        month  = int(data["month"])
-        day    = int(data["day"])
-        hour   = int(data["hour"])
-        minute = int(data["minute"])
-    except Exception:
-        await update.message.reply_text(
-            "\u274c Could not read the selected time. Please try /schedule again.",
-            parse_mode="Markdown"
-        )
-        WAITING_SCHEDULE_INPUT.pop(user_id, None)
-        return
-
-    naive_ist  = datetime(year, month, day, hour, minute)
-    run_at_utc = naive_ist - timedelta(hours=5, minutes=30)
-
-    if run_at_utc <= datetime.utcnow() + timedelta(minutes=2):
-        await update.message.reply_text(
-            "\u274c *That time has already passed or is too soon.*\n"
-            "Please use /schedule again and pick a future time.",
-            parse_mode="Markdown"
-        )
-        WAITING_SCHEDULE_INPUT.pop(user_id, None)
-        return
-
-    schedule_id  = _uuid.uuid4().hex[:12]
-    schedule_doc = {
-        "schedule_id": schedule_id,
-        "quiz_id":     state["quiz_id"],
-        "chat_id":     state["chat_id"],
-        "chat_title":  state.get("chat_title", ""),
-        "owner_id":    user_id,
-        "run_at":      run_at_utc,
-        "title":       state["quiz_title"],
-        "fired":       False,
-        "created_at":  datetime.utcnow(),
-    }
-
-    if DB is not None:
-        await DB.scheduled_quizzes.insert_one(schedule_doc)
-
-    SCHEDULED_QUIZZES[schedule_id] = {
-        "quiz_id":  state["quiz_id"],
-        "chat_id":  state["chat_id"],
-        "owner_id": user_id,
-        "run_at":   run_at_utc,
-        "title":    state["quiz_title"],
-        "fired":    False,
-    }
-
-    WAITING_SCHEDULE_INPUT.pop(user_id, None)
-
-    run_ist_str = format_ist(run_at_utc)
-    safe_quiz   = html.escape(state["quiz_title"])
-    safe_chat   = html.escape(state.get("chat_title", str(state["chat_id"])))
-
-    await update.message.reply_text(
-        "\u2705 *Quiz Scheduled Successfully!*\n\n"
-        f"\U0001f4cb Quiz: *{safe_quiz}*\n"
-        f"\U0001f4cd Group: *{safe_chat}*\n"
-        f"\u23f0 Time: *{run_ist_str} IST*\n\n"
-        f"\U0001f194 Schedule ID: `{schedule_id}`\n\n"
-        "Use /myschedules to view or cancel your schedules.",
-        parse_mode="Markdown",
-        disable_web_page_preview=True
-    )
-
-
 async def main_async() -> None:
     """Async main function"""
     global DB, SESSION
@@ -4085,9 +3305,6 @@ async def main_async() -> None:
     application.add_handler(CommandHandler("redeem", redeem_command))
     application.add_handler(MessageHandler(filters.Document.TEXT, handle_document_wrapper))
     application.add_handler(CommandHandler("myquiz", myquiz_command))
-    application.add_handler(CommandHandler("schedule", schedule_command))
-    application.add_handler(CommandHandler("myschedules", myschedules_command))
-    application.add_handler(CommandHandler("cancelschedule", cancelschedule_command))
     from telegram.ext import InlineQueryHandler
     application.add_handler(InlineQueryHandler(handle_inline_query))
     application.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r"^/startquiz_"), startquiz_group_command))
@@ -4098,7 +3315,6 @@ async def main_async() -> None:
     application.add_handler(CommandHandler("broadcast", broadcast_command))
     application.add_handler(CommandHandler("confirm_broadcast", confirm_broadcast))
     application.add_handler(CommandHandler("cancel_broadcast", cancel_broadcast))
-    application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_broadcast_message))
     
     # Add premium management commands
@@ -4129,9 +3345,6 @@ async def main_async() -> None:
 
         # Start background task to flush pending tokens to DB
         asyncio.create_task(process_pending_tokens())
-
-        # Start scheduled quiz runner
-        asyncio.create_task(scheduled_quiz_runner())
 
         # Keep running until interrupted
         while True:
