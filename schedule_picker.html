@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Schedule Quiz</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--tg-theme-bg-color, #ffffff);
+    color: var(--tg-theme-text-color, #000000);
+    min-height: 100vh;
+    padding: 16px;
+    padding-bottom: 80px;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .header h2 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--tg-theme-text-color, #000);
+  }
+
+  .header .bell {
+    font-size: 22px;
+    opacity: 0.5;
+  }
+
+  /* ── CALENDAR ── */
+  .calendar {
+    background: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .cal-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .cal-nav .month-year {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--tg-theme-text-color, #000);
+  }
+
+  .cal-nav button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 20px;
+    color: var(--tg-theme-button-color, #2481cc);
+    padding: 4px 10px;
+    border-radius: 8px;
+    transition: background 0.15s;
+  }
+
+  .cal-nav button:active { background: rgba(0,0,0,0.08); }
+
+  .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+  }
+
+  .cal-grid .dow {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--tg-theme-hint-color, #999);
+    padding: 4px 0 8px;
+    text-transform: uppercase;
+  }
+
+  .cal-grid .day {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 400;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    user-select: none;
+  }
+
+  .cal-grid .day:active { opacity: 0.7; }
+
+  .cal-grid .day.other-month {
+    color: var(--tg-theme-hint-color, #bbb);
+  }
+
+  .cal-grid .day.today {
+    color: var(--tg-theme-button-color, #2481cc);
+    font-weight: 700;
+  }
+
+  .cal-grid .day.selected {
+    background: var(--tg-theme-button-color, #2481cc);
+    color: #fff !important;
+    font-weight: 700;
+  }
+
+  .cal-grid .day.past {
+    color: var(--tg-theme-hint-color, #ccc);
+    cursor: default;
+    pointer-events: none;
+  }
+
+  /* ── TIME PICKER ── */
+  .time-section {
+    background: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    border-radius: 16px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+  }
+
+  .time-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--tg-theme-hint-color, #999);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+
+  .time-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .time-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .time-box span {
+    font-size: 13px;
+    color: var(--tg-theme-hint-color, #999);
+  }
+
+  .time-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  .time-btn {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: var(--tg-theme-button-color, #2481cc);
+    padding: 2px 16px;
+    line-height: 1;
+    transition: opacity 0.1s;
+  }
+
+  .time-btn:active { opacity: 0.5; }
+
+  .time-display {
+    background: var(--tg-theme-bg-color, #fff);
+    border: 2px solid var(--tg-theme-button-color, #2481cc);
+    border-radius: 12px;
+    font-size: 28px;
+    font-weight: 700;
+    width: 72px;
+    text-align: center;
+    padding: 8px 0;
+    color: var(--tg-theme-text-color, #000);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .time-colon {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--tg-theme-text-color, #000);
+    padding-bottom: 4px;
+  }
+
+  /* ── SUMMARY ── */
+  .summary {
+    background: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    border-radius: 16px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    color: var(--tg-theme-hint-color, #666);
+    display: none;
+  }
+
+  .summary.show { display: block; }
+
+  .summary strong {
+    color: var(--tg-theme-text-color, #000);
+    font-weight: 600;
+  }
+
+  /* ── BOTTOM BUTTON ── */
+  .confirm-btn {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    padding: 12px 16px;
+    background: var(--tg-theme-bg-color, #fff);
+    border-top: 1px solid rgba(0,0,0,0.06);
+  }
+
+  .confirm-btn button {
+    width: 100%;
+    padding: 14px;
+    background: var(--tg-theme-button-color, #2481cc);
+    color: var(--tg-theme-button-text-color, #fff);
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  .confirm-btn button:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .confirm-btn button:active:not(:disabled) { opacity: 0.85; }
+
+  .error-msg {
+    color: #ff3b30;
+    font-size: 13px;
+    text-align: center;
+    margin-top: 6px;
+    min-height: 18px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h2>📅 Schedule Quiz</h2>
+  <span class="bell">🔔</span>
+</div>
+
+<!-- Calendar -->
+<div class="calendar">
+  <div class="cal-nav">
+    <button id="prevMonth">‹</button>
+    <span class="month-year" id="monthYear"></span>
+    <button id="nextMonth">›</button>
+  </div>
+  <div class="cal-grid" id="calGrid"></div>
+</div>
+
+<!-- Time Picker -->
+<div class="time-section">
+  <div class="time-label">Time (IST)</div>
+  <div class="time-row">
+    <div class="time-box">
+      <span>Hour</span>
+      <div class="time-controls">
+        <button class="time-btn" onclick="changeHour(1)">▲</button>
+        <div class="time-display" id="hourDisplay">08</div>
+        <button class="time-btn" onclick="changeHour(-1)">▼</button>
+      </div>
+    </div>
+    <div class="time-colon">:</div>
+    <div class="time-box">
+      <span>Minute</span>
+      <div class="time-controls">
+        <button class="time-btn" onclick="changeMinute(1)">▲</button>
+        <div class="time-display" id="minuteDisplay">00</div>
+        <button class="time-btn" onclick="changeMinute(-1)">▼</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Summary -->
+<div class="summary" id="summary"></div>
+
+<!-- Confirm Button -->
+<div class="confirm-btn">
+  <button id="confirmBtn" disabled onclick="confirm()">Select a date</button>
+  <div class="error-msg" id="errorMsg"></div>
+</div>
+
+<script>
+  // Init Telegram WebApp
+  const tg = window.Telegram.WebApp;
+  tg.ready();
+  tg.expand();
+
+  // State
+  const now = new Date();
+  let viewYear  = now.getFullYear();
+  let viewMonth = now.getMonth(); // 0-indexed
+  let selectedDate = null;
+  let selHour   = 8;
+  let selMinute = 0;
+
+  const MONTHS = ["January","February","March","April","May","June",
+                  "July","August","September","October","November","December"];
+  const DAYS   = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
+  // ── Calendar render ──────────────────────────────────────────────────────────
+  function renderCalendar() {
+    document.getElementById("monthYear").textContent =
+      MONTHS[viewMonth] + " " + viewYear;
+
+    const grid = document.getElementById("calGrid");
+    grid.innerHTML = "";
+
+    // Day headers
+    DAYS.forEach(d => {
+      const el = document.createElement("div");
+      el.className = "dow";
+      el.textContent = d;
+      grid.appendChild(el);
+    });
+
+    // First day of month (Mon=0 … Sun=6)
+    const firstDay = new Date(viewYear, viewMonth, 1).getDay(); // 0=Sun
+    const startOffset = (firstDay + 6) % 7; // convert to Mon-start
+
+    const daysInMonth    = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate();
+
+    const todayStr = dateStr(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // Previous month tail
+    for (let i = startOffset - 1; i >= 0; i--) {
+      addDayCell(grid, daysInPrevMonth - i, viewMonth - 1, true, false, false);
+    }
+
+    // Current month days
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ds    = dateStr(viewYear, viewMonth, d);
+      const isToday    = ds === todayStr;
+      const isSelected = selectedDate === ds;
+      const isPast     = isPastDate(viewYear, viewMonth, d);
+      addDayCell(grid, d, viewMonth, false, isToday, isSelected, isPast, ds);
+    }
+
+    // Next month fill
+    const total = startOffset + daysInMonth;
+    const remaining = total % 7 === 0 ? 0 : 7 - (total % 7);
+    for (let i = 1; i <= remaining; i++) {
+      addDayCell(grid, i, viewMonth + 1, true, false, false);
+    }
+  }
+
+  function addDayCell(grid, day, month, isOther, isToday, isSelected, isPast, ds) {
+    const el = document.createElement("div");
+    el.className = "day";
+    if (isOther)    el.classList.add("other-month");
+    if (isToday)    el.classList.add("today");
+    if (isSelected) el.classList.add("selected");
+    if (isPast)     el.classList.add("past");
+    el.textContent = day;
+    if (!isOther && !isPast) {
+      el.onclick = () => selectDate(ds, day);
+    }
+    grid.appendChild(el);
+  }
+
+  function dateStr(y, m, d) {
+    return y + "-" + String(m + 1).padStart(2,"0") + "-" + String(d).padStart(2,"0");
+  }
+
+  function isPastDate(y, m, d) {
+    const t = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const c = new Date(y, m, d);
+    return c < t;
+  }
+
+  function selectDate(ds, day) {
+    selectedDate = ds;
+    renderCalendar();
+    updateSummary();
+  }
+
+  document.getElementById("prevMonth").onclick = () => {
+    viewMonth--;
+    if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+    renderCalendar();
+  };
+
+  document.getElementById("nextMonth").onclick = () => {
+    viewMonth++;
+    if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+    renderCalendar();
+  };
+
+  // ── Time controls ─────────────────────────────────────────────────────────
+  function changeHour(delta) {
+    selHour = (selHour + delta + 24) % 24;
+    document.getElementById("hourDisplay").textContent = String(selHour).padStart(2,"0");
+    updateSummary();
+  }
+
+  function changeMinute(delta) {
+    selMinute = (selMinute + delta + 60) % 60;
+    document.getElementById("minuteDisplay").textContent = String(selMinute).padStart(2,"0");
+    updateSummary();
+  }
+
+  // ── Summary & validation ──────────────────────────────────────────────────
+  function updateSummary() {
+    const errEl = document.getElementById("errorMsg");
+    const btn   = document.getElementById("confirmBtn");
+    const sumEl = document.getElementById("summary");
+
+    if (!selectedDate) {
+      btn.textContent = "Select a date";
+      btn.disabled = true;
+      sumEl.classList.remove("show");
+      errEl.textContent = "";
+      return;
+    }
+
+    // Build IST datetime
+    const [y, mo, d] = selectedDate.split("-").map(Number);
+    const pickedIST = new Date(y, mo - 1, d, selHour, selMinute, 0);
+
+    // Convert now to IST for comparison
+    const nowIST = new Date(now.getTime() + 5.5 * 3600 * 1000);
+    const minIST = new Date(nowIST.getTime() + 2 * 60 * 1000); // +2 min
+
+    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun",
+                        "Jul","Aug","Sep","Oct","Nov","Dec"];
+    const label = `${d} ${monthNames[mo-1]} ${y} at ${String(selHour).padStart(2,"0")}:${String(selMinute).padStart(2,"0")}`;
+
+    sumEl.innerHTML = `⏰ Scheduled for: <strong>${label} IST</strong>`;
+    sumEl.classList.add("show");
+
+    if (pickedIST <= minIST) {
+      errEl.textContent = "⚠️ Pick a time at least 2 minutes from now";
+      btn.textContent   = "Invalid time";
+      btn.disabled      = true;
+    } else {
+      errEl.textContent = "";
+      btn.textContent   = `Schedule for ${label}`;
+      btn.disabled      = false;
+    }
+  }
+
+  // ── Confirm / send to bot ─────────────────────────────────────────────────
+  function confirm() {
+    if (!selectedDate) return;
+    const [y, mo, d] = selectedDate.split("-").map(Number);
+    const data = {
+      year:   y,
+      month:  mo,
+      day:    d,
+      hour:   selHour,
+      minute: selMinute
+    };
+    tg.sendData(JSON.stringify(data));
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  renderCalendar();
+</script>
+</body>
+</html>

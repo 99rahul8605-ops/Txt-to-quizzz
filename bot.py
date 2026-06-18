@@ -125,6 +125,11 @@ def serve_webapp():
     """Serve the Mini Web App HTML page"""
     return send_from_directory('.', 'webapp.html')
 
+@app.route('/schedule_picker')
+def serve_schedule_picker():
+    """Serve the schedule date/time picker Mini App"""
+    return send_from_directory('.', 'schedule_picker.html')
+
 async def _db_get_temp_param(user_id):
     """Async helper: get temp param from DB"""
     try:
@@ -3902,31 +3907,139 @@ async def _handle_schedule_text_input(update: Update, context: ContextTypes.DEFA
 
         safe_quiz  = html.escape(state["quiz_title"])
         safe_chat  = html.escape(chat_title)
-        state["step"] = "pick_year"
+        state["step"] = "awaiting_webapp"
         WAITING_SCHEDULE_INPUT[user_id] = state
+
+        webapp_base = (
+            os.getenv("WEBAPP_URL") or
+            os.getenv("RENDER_EXTERNAL_URL") or
+            f"http://localhost:{os.environ.get('PORT', 8000)}"
+        )
+        picker_url = f"{webapp_base}/schedule_picker"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                "\U0001f4c5 Pick Date & Time",
+                web_app=WebAppInfo(url=picker_url)
+            )],
+            [InlineKeyboardButton("\u274c Cancel", callback_data="sched_cancel")]
+        ])
         await update.message.reply_text(
             "\U0001f5d3 *Schedule a Quiz*\n\n"
             f"\u2705 Quiz: *{safe_quiz}*\n"
             f"\u2705 Group: *{safe_chat}*\n\n"
-            "*Step 3/3* \u2014 Pick the date & time (IST):\n\n"
-            "\U0001f4c5 Select *Year*:",
+            "*Step 3/3* \u2014 Tap the button to open the date & time picker:",
             parse_mode="Markdown",
             disable_web_page_preview=True,
-            reply_markup=_sched_year_keyboard()
+            reply_markup=keyboard
         )
         return True
 
-    # Steps pick_year/pick_month/pick_day/pick_hour/pick_minute are handled
-    # via _handle_schedule_callbacks (inline button callbacks), not text input.
-    # If user somehow sends text during those steps, just remind them.
-    if step and step.startswith("pick_"):
+    # If user sends text while webapp is open, remind them
+    if step == "awaiting_webapp":
+        webapp_base = (
+            os.getenv("WEBAPP_URL") or
+            os.getenv("RENDER_EXTERNAL_URL") or
+            f"http://localhost:{os.environ.get('PORT', 8000)}"
+        )
+        picker_url = f"{webapp_base}/schedule_picker"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                "\U0001f4c5 Pick Date & Time",
+                web_app=WebAppInfo(url=picker_url)
+            )],
+            [InlineKeyboardButton("\u274c Cancel", callback_data="sched_cancel")]
+        ])
         await update.message.reply_text(
-            "\u2139\ufe0f Please use the buttons above to select the date & time.",
-            parse_mode="Markdown"
+            "\u2139\ufe0f Please tap the button below to open the date picker.",
+            parse_mode="Markdown",
+            reply_markup=keyboard
         )
         return True
 
     return False
+
+
+async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receives date/time from the schedule picker Mini App and saves the schedule."""
+    import json as _json
+    import uuid as _uuid
+
+    user_id  = update.effective_user.id
+    raw_data = update.effective_message.web_app_data.data
+
+    state = WAITING_SCHEDULE_INPUT.get(user_id)
+    if not state or state.get("step") != "awaiting_webapp":
+        # Not in schedule flow — ignore
+        return
+
+    try:
+        data   = _json.loads(raw_data)
+        year   = int(data["year"])
+        month  = int(data["month"])
+        day    = int(data["day"])
+        hour   = int(data["hour"])
+        minute = int(data["minute"])
+    except Exception:
+        await update.message.reply_text(
+            "\u274c Could not read the selected time. Please try /schedule again.",
+            parse_mode="Markdown"
+        )
+        WAITING_SCHEDULE_INPUT.pop(user_id, None)
+        return
+
+    naive_ist  = datetime(year, month, day, hour, minute)
+    run_at_utc = naive_ist - timedelta(hours=5, minutes=30)
+
+    if run_at_utc <= datetime.utcnow() + timedelta(minutes=2):
+        await update.message.reply_text(
+            "\u274c *That time has already passed or is too soon.*\n"
+            "Please use /schedule again and pick a future time.",
+            parse_mode="Markdown"
+        )
+        WAITING_SCHEDULE_INPUT.pop(user_id, None)
+        return
+
+    schedule_id  = _uuid.uuid4().hex[:12]
+    schedule_doc = {
+        "schedule_id": schedule_id,
+        "quiz_id":     state["quiz_id"],
+        "chat_id":     state["chat_id"],
+        "chat_title":  state.get("chat_title", ""),
+        "owner_id":    user_id,
+        "run_at":      run_at_utc,
+        "title":       state["quiz_title"],
+        "fired":       False,
+        "created_at":  datetime.utcnow(),
+    }
+
+    if DB is not None:
+        await DB.scheduled_quizzes.insert_one(schedule_doc)
+
+    SCHEDULED_QUIZZES[schedule_id] = {
+        "quiz_id":  state["quiz_id"],
+        "chat_id":  state["chat_id"],
+        "owner_id": user_id,
+        "run_at":   run_at_utc,
+        "title":    state["quiz_title"],
+        "fired":    False,
+    }
+
+    WAITING_SCHEDULE_INPUT.pop(user_id, None)
+
+    run_ist_str = format_ist(run_at_utc)
+    safe_quiz   = html.escape(state["quiz_title"])
+    safe_chat   = html.escape(state.get("chat_title", str(state["chat_id"])))
+
+    await update.message.reply_text(
+        "\u2705 *Quiz Scheduled Successfully!*\n\n"
+        f"\U0001f4cb Quiz: *{safe_quiz}*\n"
+        f"\U0001f4cd Group: *{safe_chat}*\n"
+        f"\u23f0 Time: *{run_ist_str} IST*\n\n"
+        f"\U0001f194 Schedule ID: `{schedule_id}`\n\n"
+        "Use /myschedules to view or cancel your schedules.",
+        parse_mode="Markdown",
+        disable_web_page_preview=True
+    )
 
 
 async def main_async() -> None:
@@ -3985,6 +4098,7 @@ async def main_async() -> None:
     application.add_handler(CommandHandler("broadcast", broadcast_command))
     application.add_handler(CommandHandler("confirm_broadcast", confirm_broadcast))
     application.add_handler(CommandHandler("cancel_broadcast", cancel_broadcast))
+    application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_broadcast_message))
     
     # Add premium management commands
