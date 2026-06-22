@@ -3712,39 +3712,76 @@ async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             disable_web_page_preview=True)
         return
 
-    keyboard = []
-    for q in quizzes[:10]:
-        qid   = str(q.get("quiz_id", str(q["_id"])))
-        title = q["title"]
-        keyboard.append([InlineKeyboardButton(
-            f"\U0001f4cb {title} ({q['total']} Qs)",
-            callback_data="sched_pick_" + qid
-        )])
-    keyboard.append([InlineKeyboardButton("\u274c Cancel", callback_data="sched_cancel")])
+    # Newest quiz first
+    quizzes.sort(key=lambda q: q.get("created_at", datetime.min), reverse=True)
+
+    text, keyboard = build_schedule_quiz_page(quizzes, page=0)
 
     await update.message.reply_text(
-        "\U0001f5d3 *Schedule a Quiz*\n\n*Step 1/3* — Choose which quiz to schedule:",
+        text,
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard),
         disable_web_page_preview=True
     )
 
 
-SCHEDULES_PAGE_SIZE = 10  # Number of schedules per page
-
-async def _build_schedules_page(scheds: list, page: int) -> tuple:
-    """Build text and keyboard for a given page of schedules. Returns (text, InlineKeyboardMarkup)."""
-    total = len(scheds)
-    total_pages = max(1, (total + SCHEDULES_PAGE_SIZE - 1) // SCHEDULES_PAGE_SIZE)
+def build_schedule_quiz_page(quizzes: list, page: int, page_size: int = 10):
+    """Build the text + keyboard for one page of the /schedule quiz picker."""
+    total_pages = max(1, (len(quizzes) + page_size - 1) // page_size)
     page = max(0, min(page, total_pages - 1))
+    start = page * page_size
+    chunk = quizzes[start:start + page_size]
 
-    start = page * SCHEDULES_PAGE_SIZE
-    end   = start + SCHEDULES_PAGE_SIZE
-    page_docs = scheds[start:end]
-
-    text = f"\U0001f5d3 *Your Scheduled Quizzes:* (Page {page + 1}/{total_pages})\n\n"
     keyboard = []
-    for i, doc in enumerate(page_docs, start + 1):
+    for q in chunk:
+        qid   = str(q.get("quiz_id", str(q["_id"])))
+        title = q["title"]
+        keyboard.append([InlineKeyboardButton(
+            f"\U0001f4cb {title} ({q['total']} Qs)",
+            callback_data="sched_pick_" + qid
+        )])
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("\u2b05\ufe0f Prev", callback_data=f"sched_qpage_{page-1}"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("Next \u27a1\ufe0f", callback_data=f"sched_qpage_{page+1}"))
+    if nav_row:
+        keyboard.append(nav_row)
+
+    keyboard.append([InlineKeyboardButton("\u274c Cancel", callback_data="sched_cancel")])
+
+    text = (
+        "\U0001f5d3 *Schedule a Quiz*\n\n"
+        f"*Step 1/3* — Choose which quiz to schedule: (Page {page+1}/{total_pages})"
+    )
+    return text, keyboard
+
+
+async def myschedules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all pending scheduled quizzes for the user."""
+    await record_user_interaction(update)
+    user_id = update.effective_user.id
+    if DB is None:
+        await update.message.reply_text("\u26a0\ufe0f Database not connected.",
+            disable_web_page_preview=True)
+        return
+
+    scheds = []
+    async for doc in DB.scheduled_quizzes.find(
+        {"owner_id": user_id, "fired": False}
+    ).sort("run_at", 1):
+        scheds.append(doc)
+
+    if not scheds:
+        await update.message.reply_text(
+            "\U0001f4ed You have no pending scheduled quizzes.\nUse /schedule to schedule one!",
+            disable_web_page_preview=True)
+        return
+
+    text = "\U0001f5d3 *Your Scheduled Quizzes:*\n\n"
+    keyboard = []
+    for i, doc in enumerate(scheds[:10], 1):
         run_ist    = format_ist(doc["run_at"])
         title      = doc["title"]
         sid        = doc["schedule_id"]
@@ -3758,49 +3795,11 @@ async def _build_schedules_page(scheds: list, page: int) -> tuple:
             f"\U0001f5d1 Cancel #{i}: {title[:22]}",
             callback_data="sched_del_" + sid
         )])
-
-    # Pagination row
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"scheds_page_{page - 1}"))
-    if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"scheds_page_{page + 1}"))
-    if nav_row:
-        keyboard.append(nav_row)
-
     keyboard.append([InlineKeyboardButton("\u274c Close", callback_data="close_menu")])
-    return text, InlineKeyboardMarkup(keyboard)
-
-
-async def myschedules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List all pending scheduled quizzes for the user (newest first, paginated)."""
-    await record_user_interaction(update)
-    user_id = update.effective_user.id
-    if DB is None:
-        await update.message.reply_text("\u26a0\ufe0f Database not connected.",
-            disable_web_page_preview=True)
-        return
-
-    scheds = []
-    async for doc in DB.scheduled_quizzes.find(
-        {"owner_id": user_id, "fired": False}
-    ).sort("run_at", -1):  # -1 = newest first
-        scheds.append(doc)
-
-    if not scheds:
-        await update.message.reply_text(
-            "\U0001f4ed You have no pending scheduled quizzes.\nUse /schedule to schedule one!",
-            disable_web_page_preview=True)
-        return
-
-    # Store schedules list in context for pagination
-    context.user_data["scheds_list"] = scheds
-
-    text, markup = await _build_schedules_page(scheds, page=0)
 
     await update.message.reply_text(
         text, parse_mode="Markdown",
-        reply_markup=markup,
+        reply_markup=InlineKeyboardMarkup(keyboard),
         disable_web_page_preview=True
     )
 
@@ -3990,6 +3989,22 @@ async def _handle_schedule_callbacks(query, context):
             disable_web_page_preview=True)
         return True
 
+    if data.startswith("sched_qpage_"):
+        page = int(data[len("sched_qpage_"):])
+        quizzes = await get_user_quizzes(user_id)
+        if not quizzes:
+            await query.edit_message_text("\U0001f4ed You have no saved quizzes.",
+                disable_web_page_preview=True)
+            return True
+        quizzes.sort(key=lambda q: q.get("created_at", datetime.min), reverse=True)
+        text, keyboard = build_schedule_quiz_page(quizzes, page=page)
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True)
+        return True
+
     if data.startswith("sched_pick_"):
         quiz_id = data[len("sched_pick_"):]
         try:
@@ -4036,34 +4051,6 @@ async def _handle_schedule_callbacks(query, context):
             parse_mode="Markdown",
             disable_web_page_preview=True)
         return True
-
-    if data.startswith("scheds_page_"):
-        try:
-            page = int(data.split("_")[2])
-        except (IndexError, ValueError):
-            await query.answer("Invalid page", show_alert=True)
-            return True
-        if DB is None:
-            await query.answer("DB not connected", show_alert=True)
-            return True
-        scheds = []
-        async for doc in DB.scheduled_quizzes.find(
-            {"owner_id": user_id, "fired": False}
-        ).sort("run_at", -1):
-            scheds.append(doc)
-        if not scheds:
-            await query.edit_message_text(
-                "\U0001f4ed You have no pending scheduled quizzes.\nUse /schedule to schedule one!",
-                disable_web_page_preview=True)
-            return True
-        text, markup = await _build_schedules_page(scheds, page)
-        await query.edit_message_text(
-            text, parse_mode="Markdown",
-            reply_markup=markup,
-            disable_web_page_preview=True)
-        await query.answer()
-        return True
-
 
     # ── Date/time picker steps ─────────────────────────────────────────────────
     state = WAITING_SCHEDULE_INPUT.get(user_id, {})
