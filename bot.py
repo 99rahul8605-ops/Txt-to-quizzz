@@ -3975,6 +3975,64 @@ async def _sched_finalize(query, context, user_id, year, month, day, hour, minut
 
 # ─── SCHEDULE CALLBACK HANDLERS ───────────────────────────────────────────────
 
+async def get_recent_schedule_groups(user_id: int, limit: int = 5) -> list:
+    """Return the user's most recently used groups (chat_id + chat_title) for scheduling,
+    most recent first, de-duplicated by chat_id."""
+    if DB is None:
+        return []
+    groups = []
+    seen = set()
+    try:
+        async for doc in DB.scheduled_quizzes.find(
+            {"owner_id": user_id}
+        ).sort("created_at", -1):
+            cid = doc.get("chat_id")
+            if cid is None or cid in seen:
+                continue
+            seen.add(cid)
+            groups.append({"chat_id": cid, "chat_title": doc.get("chat_title") or str(cid)})
+            if len(groups) >= limit:
+                break
+    except Exception as e:
+        logger.error(f"get_recent_schedule_groups error: {e}")
+    return groups
+
+
+async def _proceed_to_time_step(message_or_query, user_id: int, chat_title: str, edit: bool):
+    """Show the date/time picker webapp button — final shared step after a group is chosen."""
+    state = WAITING_SCHEDULE_INPUT.get(user_id) or {}
+    safe_quiz = html.escape(state.get("quiz_title", ""))
+    safe_chat = html.escape(chat_title)
+    state["step"] = "awaiting_webapp"
+    WAITING_SCHEDULE_INPUT[user_id] = state
+
+    webapp_base = (
+        os.getenv("WEBAPP_URL") or
+        os.getenv("RENDER_EXTERNAL_URL") or
+        f"http://localhost:{os.environ.get('PORT', 8000)}"
+    )
+    picker_url = f"{webapp_base}/schedule_picker"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "\U0001f4c5 Pick Date & Time",
+            web_app=WebAppInfo(url=picker_url)
+        )],
+        [InlineKeyboardButton("\u274c Cancel", callback_data="sched_cancel")]
+    ])
+    text = (
+        "\U0001f5d3 *Schedule a Quiz*\n\n"
+        f"\u2705 Quiz: *{safe_quiz}*\n"
+        f"\u2705 Group: *{safe_chat}*\n\n"
+        "*Step 3/3* \u2014 Tap the button to open the date & time picker:"
+    )
+    if edit:
+        await message_or_query.edit_message_text(
+            text, parse_mode="Markdown", reply_markup=keyboard, disable_web_page_preview=True)
+    else:
+        await message_or_query.reply_text(
+            text, parse_mode="Markdown", reply_markup=keyboard, disable_web_page_preview=True)
+
+
 async def _handle_schedule_callbacks(query, context):
     """
     Handle all sched_* callback_data values.
@@ -4022,16 +4080,80 @@ async def _handle_schedule_callbacks(query, context):
             "quiz_title": quiz_doc["title"],
         }
         safe_title = html.escape(quiz_doc["title"])
+
+        recent_groups = await get_recent_schedule_groups(user_id)
+        keyboard = []
+        for g in recent_groups:
+            keyboard.append([InlineKeyboardButton(
+                f"\U0001f4cd {g['chat_title']}",
+                callback_data=f"sched_group_{g['chat_id']}"
+            )])
+        keyboard.append([InlineKeyboardButton("\u274c Cancel", callback_data="sched_cancel")])
+
+        extra_hint = (
+            "\u2705 Tap a group below, or send a new *Group Chat ID*.\n\n"
+            if recent_groups else
+            "Send the *Group Chat ID* where the quiz should run.\n\n"
+        )
         await query.edit_message_text(
             "\U0001f5d3 *Schedule a Quiz*\n\n"
             f"\u2705 Quiz selected: *{safe_title}*\n\n"
-            "*Step 2/3* \u2014 Send the *Group Chat ID* where the quiz should run.\n\n"
+            f"*Step 2/3* \u2014 {extra_hint}"
             "\U0001f4a1 *How to get your group chat ID:*\n"
             "\u2022 Add @userinfobot to your group and type /start\n"
             "\u2022 Or forward any group message to @userinfobot\n\n"
             "Group IDs look like: `-1001234567890`",
             parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard) if recent_groups else None,
             disable_web_page_preview=True)
+        return True
+
+    if data.startswith("sched_group_"):
+        chat_id_str = data[len("sched_group_"):]
+        try:
+            chat_id = int(chat_id_str)
+        except ValueError:
+            await query.answer("Invalid group", show_alert=True)
+            return True
+
+        state = WAITING_SCHEDULE_INPUT.get(user_id)
+        if not state or state.get("step") != "chat":
+            await query.answer("Session expired, please restart /schedule", show_alert=True)
+            return True
+
+        try:
+            chat_info  = await context.bot.get_chat(chat_id)
+            chat_title = chat_info.title or str(chat_id)
+        except Exception:
+            await query.edit_message_text(
+                "\u274c Bot is not in that group anymore, or the chat ID is wrong.\n"
+                "Please send a new Group Chat ID.",
+                disable_web_page_preview=True)
+            return True
+
+        try:
+            member = await context.bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+            is_admin = member.status in ("administrator", "creator")
+        except Exception:
+            is_admin = False
+
+        if not is_admin:
+            safe_title = html.escape(chat_title)
+            await query.edit_message_text(
+                f"\u274c *You are not an admin of {safe_title}.*\n\n"
+                "Only group admins can schedule a quiz in that group.\n"
+                "Please ask a group admin to schedule it, or use a group where you are an admin.",
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+            WAITING_SCHEDULE_INPUT.pop(user_id, None)
+            return True
+
+        state["chat_id"]    = chat_id
+        state["chat_title"] = chat_title
+        WAITING_SCHEDULE_INPUT[user_id] = state
+
+        await _proceed_to_time_step(query, user_id, chat_title, edit=True)
         return True
 
     if data.startswith("sched_del_"):
@@ -4254,36 +4376,9 @@ async def _handle_schedule_text_input(update: Update, context: ContextTypes.DEFA
 
         state["chat_id"]    = chat_id
         state["chat_title"] = chat_title
-        state["step"]       = "time"
         WAITING_SCHEDULE_INPUT[user_id] = state
 
-        safe_quiz  = html.escape(state["quiz_title"])
-        safe_chat  = html.escape(chat_title)
-        state["step"] = "awaiting_webapp"
-        WAITING_SCHEDULE_INPUT[user_id] = state
-
-        webapp_base = (
-            os.getenv("WEBAPP_URL") or
-            os.getenv("RENDER_EXTERNAL_URL") or
-            f"http://localhost:{os.environ.get('PORT', 8000)}"
-        )
-        picker_url = f"{webapp_base}/schedule_picker"
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "\U0001f4c5 Pick Date & Time",
-                web_app=WebAppInfo(url=picker_url)
-            )],
-            [InlineKeyboardButton("\u274c Cancel", callback_data="sched_cancel")]
-        ])
-        await update.message.reply_text(
-            "\U0001f5d3 *Schedule a Quiz*\n\n"
-            f"\u2705 Quiz: *{safe_quiz}*\n"
-            f"\u2705 Group: *{safe_chat}*\n\n"
-            "*Step 3/3* \u2014 Tap the button to open the date & time picker:",
-            parse_mode="Markdown",
-            reply_markup=keyboard,
-            disable_web_page_preview=True
-        )
+        await _proceed_to_time_step(update.message, user_id, chat_title, edit=False)
         return True
 
     # If user sends text while webapp is open, remind them
